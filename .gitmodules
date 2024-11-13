@@ -1,0 +1,3 @@
+[submodule "xdaqmetadata"]
+	path = xvc/xdaqmetadata
+	url = git@github.com:kontex-neuro/xdaqmetadata.git
