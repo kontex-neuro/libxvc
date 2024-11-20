@@ -3,8 +3,6 @@
 #include <string>
 #include <vector>
 
-namespace xvc
-{
 
 class Camera
 {
@@ -21,7 +19,7 @@ public:
     Camera(const int id, const std::string &name);
     ~Camera();
 
-    [[nodiscard]] const std::string list_cameras();
+    [[nodiscard]] static const std::string list_cameras();
     [[nodiscard]] const std::string &get_name() const { return _name; };
     [[nodiscard]] const std::vector<Cap> &get_caps() const { return caps; };
     [[nodiscard]] const unsigned short get_port() const { return _port; };
@@ -41,5 +39,3 @@ private:
     std::vector<Cap> caps;
     std::string _cap;
 };
-
-}  // namespace xvc

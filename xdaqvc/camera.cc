@@ -11,13 +11,12 @@
 using nlohmann::json;
 using namespace std::chrono_literals;
 
-namespace xvc
-{
 namespace
 {
 constexpr auto Cameras = "192.168.177.100:8000/cameras";
-constexpr auto JPEG = "192.168.177.100:8000/jpeg";
+constexpr auto Test = "127.0.0.1:8000/mock";
 constexpr auto Mock = "192.168.177.100:8000/mock";
+constexpr auto JPEG = "192.168.177.100:8000/jpeg";
 constexpr auto H265 = "192.168.177.100:8000/h265";
 constexpr auto Stop = "192.168.177.100:8000/stop";
 constexpr auto OK = 200;
@@ -53,8 +52,8 @@ void Camera::start()
     cpr::Url url;
     if (_cap.find("image/jpeg") != std::string::npos) {
         url = cpr::Url{JPEG};
-    } else if (_id == -1) {
-        url = cpr::Url{Mock};
+    } else if (_id <= -1 && _id >= -10) {
+        url = cpr::Url{Test};
     } else {
         url = cpr::Url{H265};
     }
@@ -83,5 +82,3 @@ void Camera::stop()
         spdlog::info("Successfully stop camera");
     }
 }
-
-}  // namespace xvc

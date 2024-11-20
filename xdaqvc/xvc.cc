@@ -22,18 +22,14 @@
 #include <gst/video/video-info.h>
 #include <spdlog/spdlog.h>
 
-#include <thread>
-
-#include "include/key_value_store.h"
-#include "include/xdaqmetadata.h"
-
-
-// #include <chrono>
 #include <cstddef>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
+
+#include "xdaqmetadata/key_value_store.h"
+#include "xdaqmetadata/xdaqmetadata.h"
 
 
 using namespace std::chrono_literals;
@@ -50,7 +46,6 @@ GstElement *create_element(const gchar *factoryname, const gchar *name)
 namespace xvc
 {
 
-// GstElement *open_video_stream(GstPipeline *pipeline, Camera *camera)
 void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
 {
     g_info("setup_h265_srt_stream");
@@ -130,12 +125,6 @@ void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
         gst_object_unref(pipeline);
         return;
     }
-
-    // tell appsink to notify us when it receives an image
-    // g_object_set(G_OBJECT(sink), "emit-signals", TRUE, NULL);
-
-    // tell appsink what function to call when it notifies us
-    // g_signal_connect(sink, "new-sample", G_CALLBACK(callback), NULL);
 }
 
 void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
@@ -308,7 +297,6 @@ void start_jpeg_recording(GstPipeline *pipeline, fs::path &filepath)
 
     g_object_set(G_OBJECT(filesink), "location", filepath.generic_string().c_str(), nullptr);
     g_object_set(G_OBJECT(filesink), "max-size-time", 0, nullptr);  // max-size-time=0 -> continuous
-    // g_object_set(G_OBJECT(filesink), "max-files", 10, nullptr);
     g_object_set(G_OBJECT(filesink), "muxer-factory", "matroskamux", nullptr);
 
     gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
@@ -610,16 +598,5 @@ void parse_video_save_binary_jpeg(std::string &video_filepath)
     gst_object_unref(pipeline);
     bin_store.closeFile();
 }
-
-// void start_websocket_client(const std::string &host, const std::string &port)
-// {
-//     std::thread([host, port]() {
-//         net::io_context ioc;
-
-//         std::make_shared<Session>(ioc)->run(host, port, "hello");
-
-//         ioc.run();
-//     });
-// }
 
 }  // namespace xvc

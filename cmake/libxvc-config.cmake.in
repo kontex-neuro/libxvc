@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+
+find_dependency(cpr)
+include("${CMAKE_CURRENT_LIST_DIR}/libxvc-targets.cmake")
+
+check_required_components(libxvc)

@@ -1,6 +1,7 @@
 #include "port_pool.h"
 
-#include <iostream>
+#include <spdlog/spdlog.h>
+
 
 
 PortPool::PortPool(unsigned short start, unsigned short end)
@@ -31,9 +32,8 @@ void PortPool::release_port(unsigned short port)
 
 void PortPool::print_available_ports()
 {
-    std::cout << "Available Ports: ";
+    spdlog::info("Available Ports: ");
     for (const auto &port : available_ports) {
-        std::cout << port << " ";
+        spdlog::info("{} ", port);
     }
-    std::cout << std::endl;
 }

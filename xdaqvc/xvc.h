@@ -3,10 +3,7 @@
 #include <gst/gstpipeline.h>
 
 #include <filesystem>
-#include <memory>
 #include <string>
-
-// #include "portpool.h"
 
 namespace fs = std::filesystem;
 
@@ -25,10 +22,5 @@ void stop_jpeg_recording(GstPipeline *pipeline);
 
 void parse_video_save_binary_h265(std::string &filepath);
 void parse_video_save_binary_jpeg(std::string &filepath);
-
-// void start_websocket_client();
-
-// inline std::unique_ptr<PortPool> port_pool;
-
 
 }  // namespace xvc
