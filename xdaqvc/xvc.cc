@@ -25,7 +25,6 @@
 #include <cstddef>
 #include <cstdlib>
 #include <iostream>
-#include <memory>
 #include <string>
 
 #include "xdaqmetadata/key_value_store.h"
@@ -34,6 +33,8 @@
 
 using namespace std::chrono_literals;
 
+namespace
+{
 GstElement *create_element(const gchar *factoryname, const gchar *name)
 {
     auto element = gst_element_factory_make(factoryname, name);
@@ -42,6 +43,8 @@ GstElement *create_element(const gchar *factoryname, const gchar *name)
     }
     return element;
 }
+}  // namespace
+
 
 namespace xvc
 {
@@ -368,20 +371,43 @@ void stop_jpeg_recording(GstPipeline *pipeline)
     );
 }
 
-void mock_high_frame_rate(GstPipeline *pipeline, const std::string &uri)
+void mock_camera(GstPipeline *pipeline, const std::string &uri)
 {
-    g_info("mock_high_frame_rate");
+    spdlog::info("mock_camera");
 
-    auto src = create_element("srtsrc", "src");
+    auto src = create_element("videotestsrc", "src");
+    auto cf_src = create_element("capsfilter", "cf_src");
+    // auto src = create_element("srtsrc", "src");
     // auto tee = create_element("tee", "t");
-    auto parser = create_element("jpegparse", "parser");
-    auto dec = create_element("jpegdec", "dec");
-    auto conv = create_element("videoconvert", "conv");
-    auto cf_conv = create_element("capsfilter", "cf_conv");
-    auto queue = create_element("queue", "queue");
+    // #ifdef JPEG_CLIENT
+    //     auto parser = create_element("jpegparse", "parser");
+    //     auto dec = create_element("jpegdec", "dec");
+    // #elif H265_CLIENT
+    //     auto parser = create_element("h265parse", "parser");
+    //     auto dec = create_element("d3d12h265device1dec", "dec");
+    // #elif H264_CLIENT
+    //     auto parser = create_element("h264parse", "parser");
+    //     auto dec = create_element("d3d12h264device1dec", "dec");
+    // #endif
+    // auto conv = create_element("videoconvert", "conv");
+    // auto cf_conv = create_element("capsfilter", "cf_conv");
+    // auto queue = create_element("queue", "queue");
     auto appsink = create_element("appsink", "appsink");
 
     // clang-format off
+    std::unique_ptr<GstCaps, decltype(&gst_caps_unref)> cf_src_caps(
+        gst_caps_new_simple(
+            "video/x-raw",
+            "format", G_TYPE_STRING, "RGB", 
+            // "width", G_TYPE_INT, 720,
+            "width", G_TYPE_INT, 3840,
+            // "height", G_TYPE_INT, 540,
+            "height", G_TYPE_INT, 2160,
+            "framerate", GST_TYPE_FRACTION, 500, 1,
+            nullptr
+        ),
+        gst_caps_unref
+    );
     std::unique_ptr<GstCaps, decltype(&gst_caps_unref)> cf_conv_caps(
         gst_caps_new_simple(
         "video/x-raw",
@@ -391,23 +417,30 @@ void mock_high_frame_rate(GstPipeline *pipeline, const std::string &uri)
     );
     // clang-format on
 
-    g_object_set(G_OBJECT(src), "uri", fmt::format("srt://{}", uri).c_str(), nullptr);
-    g_object_set(G_OBJECT(cf_conv), "caps", cf_conv_caps.get(), nullptr);
+    // g_object_set(G_OBJECT(src), "pattern", 18, nullptr);
+    // g_object_set(G_OBJECT(src), "uri", fmt::format("srt://{}", uri).c_str(), nullptr);
+    g_object_set(G_OBJECT(cf_src), "caps", cf_src_caps.get(), nullptr);
+    // g_object_set(G_OBJECT(cf_conv), "caps", cf_conv_caps.get(), nullptr);
+    g_object_set(G_OBJECT(appsink), "drop", true, nullptr);
+    g_object_set(G_OBJECT(appsink), "sync", false, nullptr);
 
     gst_bin_add_many(
         GST_BIN(pipeline),
         src,
-        parser,
-        // tee,
-        dec,
-        conv,
-        cf_conv,
-        queue,
+        cf_src,
+        // parser,
+        // // tee,
+        // dec,
+        // conv,
+        // cf_conv,
+        // queue,
         appsink,
         nullptr
     );
 
-    if (!gst_element_link_many(src, parser, dec, conv, cf_conv, queue, appsink, nullptr)) {
+    // if (!gst_element_link_many(src, parser, dec, conv, cf_conv, queue, appsink, nullptr)) {
+    if (!gst_element_link_many(src, cf_src, appsink, nullptr)) {
+        // if (!gst_element_link_many(src, cf_src, parser, dec, conv, cf_conv, appsink, nullptr)) {
         g_error("Elements could not be linked.\n");
         gst_object_unref(pipeline);
         return;
