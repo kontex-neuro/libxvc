@@ -8,7 +8,7 @@ class libxvc(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     generators = "VirtualRunEnv"
     license = ""
-    url = ""
+    url = "https://github.com/kontex-neuro/libxvc.git"
     description = "XDAQ Video Capture library"
 
     def build_requirements(self):
@@ -21,7 +21,6 @@ class libxvc(ConanFile):
         self.requires("fmt/10.2.1")
         self.requires("spdlog/1.13.0")
         self.requires("nlohmann_json/3.11.3")
-        self.requires("json-schema-validator/2.3.0")
         self.requires("cpr/1.10.5")
         self.requires("xdaqmetadata/0.0.1")
 

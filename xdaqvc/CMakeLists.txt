@@ -14,7 +14,6 @@ set(XVC_HEADERS
 target_sources(libxvc
     PRIVATE
         "${XVC_SOURCES}"
-        "${XVC_HEADERS}"
     PUBLIC 
         FILE_SET "public_headers"
         TYPE "HEADERS"
@@ -27,11 +26,12 @@ target_include_directories(libxvc
 )
 set_target_properties(libxvc PROPERTIES 
     VERSION "${libxvc_VERSION}"
-    SOVERSION 0
+    SOVERSION "${PROJECT_VERSION_MAJOR}"
     POSITION_INDEPENDENT_CODE ON
 )
 
 target_compile_features(libxvc PUBLIC cxx_std_20)
+target_compile_options(libxvc PRIVATE -Wall)
 target_link_libraries(libxvc 
     PUBLIC
         fmt::fmt
@@ -48,7 +48,7 @@ install(
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-    FILE_SET public_headers DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/xdaqvc"
+    FILE_SET "public_headers" DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/xdaqvc"
 )
 install(
     EXPORT libxvc-targets
