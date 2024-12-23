@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-set(libxvc_VERSION 0.0.1)
+set(libxvc_VERSION 0.0.2)
 
 project(libxvc
     LANGUAGES CXX
@@ -12,12 +12,14 @@ project(libxvc
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(Boost_USE_STATIC_LIBS ON)
 find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(cpr REQUIRED)
 find_package(xdaqmetadata REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(Boost 1.81.0 REQUIRED COMPONENTS program_options)
 pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
 
 add_subdirectory(xdaqvc)

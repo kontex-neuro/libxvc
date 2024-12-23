@@ -242,7 +242,7 @@ void stop_h265_recording(GstPipeline *pipeline)
     gst_pad_add_probe(
         src_pad,
         GST_PAD_PROBE_TYPE_IDLE,
-        [](GstPad *src_pad, GstPadProbeInfo *info, gpointer user_data) -> GstPadProbeReturn {
+        [](GstPad *src_pad, GstPadProbeInfo *, gpointer user_data) -> GstPadProbeReturn {
             g_info("Unlinking...");
             auto pipeline = GST_PIPELINE(user_data);
             auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
@@ -333,7 +333,7 @@ void stop_jpeg_recording(GstPipeline *pipeline)
     gst_pad_add_probe(
         src_pad,
         GST_PAD_PROBE_TYPE_IDLE,
-        [](GstPad *src_pad, GstPadProbeInfo *info, gpointer user_data) -> GstPadProbeReturn {
+        [](GstPad *src_pad, GstPadProbeInfo *, gpointer user_data) -> GstPadProbeReturn {
             g_info("unlink");
             auto pipeline = GST_PIPELINE(user_data);
             auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
@@ -371,7 +371,7 @@ void stop_jpeg_recording(GstPipeline *pipeline)
     );
 }
 
-void mock_camera(GstPipeline *pipeline, const std::string &uri)
+void mock_camera(GstPipeline *pipeline, const std::string &)
 {
     spdlog::info("mock_camera");
 

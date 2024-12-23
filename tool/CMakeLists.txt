@@ -1,6 +1,3 @@
-set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost 1.81.0 REQUIRED COMPONENTS program_options)
-
 add_executable(xvc_tool xvc_tool.cc)
 target_link_libraries(xvc_tool 
     PRIVATE
@@ -11,3 +8,10 @@ target_link_libraries(xvc_tool
         libxvc
 )
 target_compile_features(xvc_tool PRIVATE cxx_std_20)
+target_compile_options(xvc_tool
+    PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        # $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+        # $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
+)

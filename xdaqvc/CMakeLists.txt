@@ -4,11 +4,13 @@ set(XVC_SOURCES
     xvc.cc
     camera.cc
     port_pool.cc
+    ws_client.cc
 )
 set(XVC_HEADERS
     xvc.h
     camera.h
     port_pool.h
+    ws_client.h
 )
 
 target_sources(libxvc
@@ -31,7 +33,13 @@ set_target_properties(libxvc PROPERTIES
 )
 
 target_compile_features(libxvc PUBLIC cxx_std_20)
-target_compile_options(libxvc PRIVATE -Wall)
+target_compile_options(libxvc
+    PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        # $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+        # $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
+)
 target_link_libraries(libxvc 
     PUBLIC
         fmt::fmt
@@ -40,6 +48,7 @@ target_link_libraries(libxvc
         nlohmann_json::nlohmann_json
         PkgConfig::gstreamer
         xdaqmetadata::xdaqmetadata
+        Boost::boost
 )
 
 install(

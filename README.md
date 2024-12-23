@@ -1,6 +1,6 @@
 # XDAQ Video Capture Library
 
-### Third-party
+## Third-party
 
 * CMake ([New BSD License](https://github.com/Kitware/CMake/blob/master/Copyright.txt))
 * Ninja ([Apache License 2.0](https://github.com/ninja-build/ninja/blob/master/COPYING))
@@ -11,10 +11,10 @@
 * cpr ([MIT License](https://github.com/libcpr/cpr/blob/master/LICENSE))
 * GStreamer ([LGPL-2.1](https://github.com/GStreamer/gstreamer/blob/main/LICENSE))
 
-### Build instructions
+## Build instructions
     conan install . -b missing -pr:a <profile> -s build_type=Release
     cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release
     cmake --build build/Release --preset conan-release
     
-### Export as conan package to local cache
+## Export as conan package to local cache
     conan export-pkg . -pr:a <profile> -s build_type=Release

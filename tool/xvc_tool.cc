@@ -52,7 +52,7 @@ int main(int argc, char *argv[])
         fmt::println("list");
         // auto ip = vm["ip"].as<std::string>();
 
-        auto cameras = Camera::list_cameras();
+        auto cameras = Camera::cameras();
         fmt::println("{}", cameras);
         return 0;
     }

@@ -19,15 +19,15 @@ public:
     Camera(const int id, const std::string &name);
     ~Camera();
 
-    [[nodiscard]] static const std::string list_cameras();
-    [[nodiscard]] const std::string &get_name() const { return _name; };
-    [[nodiscard]] const std::vector<Cap> &get_caps() const { return caps; };
-    [[nodiscard]] const unsigned short get_port() const { return _port; };
-    [[nodiscard]] const int get_id() const { return _id; }
-    [[nodiscard]] const std::string &get_current_cap() const { return _cap; };
+    [[nodiscard]] static const std::string cameras();
+    [[nodiscard]] const std::string name() const { return _name; };
+    [[nodiscard]] const std::vector<Cap> caps() const { return _caps; };
+    [[nodiscard]] unsigned short port() const { return _port; };
+    [[nodiscard]] int id() const { return _id; }
+    [[nodiscard]] const std::string current_cap() const { return _current_cap; };
 
-    void set_current_cap(const std::string &cap) { _cap = cap; }
-    void add_cap(const Cap &cap) { caps.emplace_back(cap); }
+    void set_current_cap(const std::string &cap) { _current_cap = cap; }
+    void add_cap(const Cap &cap) { _caps.emplace_back(cap); }
 
     void start();
     void stop();
@@ -36,6 +36,6 @@ private:
     int _id;
     unsigned short _port;
     std::string _name;
-    std::vector<Cap> caps;
-    std::string _cap;
+    std::vector<Cap> _caps;
+    std::string _current_cap;
 };

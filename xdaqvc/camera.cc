@@ -15,7 +15,7 @@ namespace
 {
 constexpr auto Cameras = "192.168.177.100:8000/cameras";
 constexpr auto Test = "127.0.0.1:8000/mock";
-constexpr auto Mock = "192.168.177.100:8000/mock";
+// constexpr auto Mock = "192.168.177.100:8000/mock";
 constexpr auto JPEG = "192.168.177.100:8000/jpeg";
 constexpr auto H265 = "192.168.177.100:8000/h265";
 constexpr auto Stop = "192.168.177.100:8000/stop";
@@ -33,7 +33,7 @@ Camera::Camera(const int id, const std::string &name)
 
 Camera::~Camera() { pool.release_port(_port); }
 
-const std::string Camera::list_cameras()
+const std::string Camera::cameras()
 {
     std::string cameras = "";
     auto response = cpr::Get(cpr::Url{Cameras}, cpr::Timeout{Timeout});
@@ -47,10 +47,10 @@ void Camera::start()
 {
     json payload;
     payload["id"] = _id;
-    payload["capability"] = _cap;
+    payload["capability"] = _current_cap;
     payload["port"] = _port;
     cpr::Url url;
-    if (_cap.find("image/jpeg") != std::string::npos) {
+    if (_current_cap.find("image/jpeg") != std::string::npos) {
         url = cpr::Url{JPEG};
     } else if (_id <= -1 && _id >= -10) {
         url = cpr::Url{Test};
