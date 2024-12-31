@@ -174,7 +174,9 @@ void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
     }
 }
 
-void start_h265_recording(GstPipeline *pipeline, fs::path &filepath)
+void start_h265_recording(
+    GstPipeline *pipeline, fs::path &filepath, bool continuous, int max_size_time, int max_files
+)
 {
     spdlog::info("start_h265_recording");
 
@@ -186,7 +188,8 @@ void start_h265_recording(GstPipeline *pipeline, fs::path &filepath)
     auto cf_parser = create_element("capsfilter", "cf_record_parser");
     auto filesink = create_element("splitmuxsink", "filesink");
 
-    filepath += "-%02d.mkv";
+    filepath += continuous ? ".mkv" : "-%02d.mkv";
+    auto _max_size_time = continuous ? 0 : max_size_time * GST_SECOND * 60;
 
     // clang-format off
     std::unique_ptr<GstCaps, decltype(&gst_caps_unref)> cf_parser_caps(
@@ -201,7 +204,10 @@ void start_h265_recording(GstPipeline *pipeline, fs::path &filepath)
 
     g_object_set(G_OBJECT(cf_parser), "caps", cf_parser_caps.get(), nullptr);
     g_object_set(G_OBJECT(filesink), "location", filepath.generic_string().c_str(), nullptr);
-    g_object_set(G_OBJECT(filesink), "max-files", 10, nullptr);
+    g_object_set(
+        G_OBJECT(filesink), "max-size-time", _max_size_time, nullptr
+    );  // max-size-time=0 -> continuous
+    g_object_set(G_OBJECT(filesink), "max-files", max_files, nullptr);
     g_object_set(
         G_OBJECT(filesink), "max-size-bytes", 0, nullptr
     );  // Set max-size-bytes to 0 in order to make send-keyframe-requests work.
@@ -285,10 +291,10 @@ void stop_h265_recording(GstPipeline *pipeline)
     );
 }
 
-void start_jpeg_recording(GstPipeline *pipeline, fs::path &filepath)
+void start_jpeg_recording(
+    GstPipeline *pipeline, fs::path &filepath, bool continuous, int max_size_time, int max_files
+)
 {
-    spdlog::info("start_jpeg_recording");
-
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     auto src_pad = gst_element_request_pad_simple(tee, "src_1");
 
@@ -296,13 +302,18 @@ void start_jpeg_recording(GstPipeline *pipeline, fs::path &filepath)
     auto parser = create_element("jpegparse", "record_parser");
     auto filesink = create_element("splitmuxsink", "filesink");
 
-    filepath += "-%02d.mkv";
+    filepath += continuous ? ".mkv" : "-%02d.mkv";
+    auto _max_size_time = continuous ? 0 : max_size_time * GST_SECOND * 60;
 
     g_object_set(G_OBJECT(filesink), "location", filepath.generic_string().c_str(), nullptr);
-    g_object_set(G_OBJECT(filesink), "max-size-time", 0, nullptr);  // max-size-time=0 -> continuous
+    g_object_set(
+        G_OBJECT(filesink), "max-size-time", _max_size_time, nullptr
+    );  // max-size-time=0 -> continuous
+    g_object_set(G_OBJECT(filesink), "max-files", max_files, nullptr);
     g_object_set(G_OBJECT(filesink), "muxer-factory", "matroskamux", nullptr);
 
-    gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
+    // gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
+    gst_bin_add_many(GST_BIN(pipeline), queue_record, filesink, nullptr);
 
     if (!gst_element_link_many(queue_record, parser, filesink, nullptr)) {
         g_error("Elements could not be linked.\n");
