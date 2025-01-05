@@ -312,9 +312,8 @@ void start_jpeg_recording(
     g_object_set(G_OBJECT(filesink), "max-files", max_files, nullptr);
     g_object_set(G_OBJECT(filesink), "muxer-factory", "matroskamux", nullptr);
 
-    // gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
-    gst_bin_add_many(GST_BIN(pipeline), queue_record, filesink, nullptr);
-
+    gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
+    
     if (!gst_element_link_many(queue_record, parser, filesink, nullptr)) {
         g_error("Elements could not be linked.\n");
         gst_object_unref(pipeline);
