@@ -51,7 +51,7 @@ namespace xvc
 
 void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
 {
-    g_info("setup_h265_srt_stream");
+    spdlog::info("setup_h265_srt_stream");
 
     auto src = create_element("srtsrc", "src");
     auto parser = create_element("h265parse", "parser");
@@ -75,7 +75,7 @@ void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
         gst_caps_new_simple(
         "application/x-rtp",
         "encoding-name", G_TYPE_STRING, "H265", 
-        NULL),
+        nullptr),
         gst_caps_unref
     );
     std::unique_ptr<GstCaps, decltype(&gst_caps_unref)> cf_parser_caps(
@@ -124,7 +124,7 @@ void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
 
     if (!gst_element_link_many(src, parser, cf_parser, tee, nullptr) ||
         !gst_element_link_many(tee, queue_display, dec, cf_dec, conv, cf_conv, appsink, nullptr)) {
-        g_error("Elements could not be linked.\n");
+        spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
         return;
     }
@@ -132,7 +132,7 @@ void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
 
 void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
 {
-    g_info("setup_jpeg_srt_stream");
+    spdlog::info("setup_jpeg_srt_stream");
 
     auto src = create_element("srtclientsrc", "src");
     auto parser = create_element("jpegparse", "parser");
@@ -168,7 +168,7 @@ void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
 
     if (!gst_element_link_many(src, parser, tee, nullptr) ||
         !gst_element_link_many(tee, queue_display, dec, conv, cf_conv, appsink, nullptr)) {
-        g_error("Elements could not be linked.\n");
+        spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
         return;
     }
@@ -217,7 +217,7 @@ void start_h265_recording(
     gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, cf_parser, filesink, nullptr);
 
     if (!gst_element_link_many(queue_record, parser, cf_parser, filesink, nullptr)) {
-        g_error("Elements could not be linked.\n");
+        spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
         return;
     }
@@ -242,14 +242,16 @@ void start_h265_recording(
 
 void stop_h265_recording(GstPipeline *pipeline)
 {
-    g_info("stop_h265_recording");
+    spdlog::info("stop_h265_recording");
+
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     auto src_pad = gst_element_get_static_pad(tee, "src_1");
     gst_pad_add_probe(
         src_pad,
         GST_PAD_PROBE_TYPE_IDLE,
         [](GstPad *src_pad, GstPadProbeInfo *, gpointer user_data) -> GstPadProbeReturn {
-            g_info("Unlinking...");
+            spdlog::info("Unlinking");
+
             auto pipeline = GST_PIPELINE(user_data);
             auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
             std::unique_ptr<GstElement, decltype(&gst_object_unref)> queue_record(
@@ -282,12 +284,11 @@ void stop_h265_recording(GstPipeline *pipeline)
 
             gst_element_release_request_pad(tee, src_pad);
             gst_object_unref(src_pad);
-            g_info("Unlinked");
 
             return GST_PAD_PROBE_REMOVE;
         },
         pipeline,
-        NULL
+        nullptr
     );
 }
 
@@ -295,6 +296,8 @@ void start_jpeg_recording(
     GstPipeline *pipeline, fs::path &filepath, bool continuous, int max_size_time, int max_files
 )
 {
+    spdlog::info("start_jpeg_recording");
+
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     auto src_pad = gst_element_request_pad_simple(tee, "src_1");
 
@@ -313,9 +316,9 @@ void start_jpeg_recording(
     g_object_set(G_OBJECT(filesink), "muxer-factory", "matroskamux", nullptr);
 
     gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
-    
+
     if (!gst_element_link_many(queue_record, parser, filesink, nullptr)) {
-        g_error("Elements could not be linked.\n");
+        spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
         return;
     }
@@ -337,14 +340,16 @@ void start_jpeg_recording(
 
 void stop_jpeg_recording(GstPipeline *pipeline)
 {
-    g_info("stop_jpeg_recording");
+    spdlog::info("stop_jpeg_recording");
+
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     auto src_pad = gst_element_get_static_pad(tee, "src_1");
     gst_pad_add_probe(
         src_pad,
         GST_PAD_PROBE_TYPE_IDLE,
         [](GstPad *src_pad, GstPadProbeInfo *, gpointer user_data) -> GstPadProbeReturn {
-            g_info("unlink");
+            spdlog::info("Unlinking");
+
             auto pipeline = GST_PIPELINE(user_data);
             auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
             std::unique_ptr<GstElement, decltype(&gst_object_unref)> queue_record(
@@ -377,7 +382,7 @@ void stop_jpeg_recording(GstPipeline *pipeline)
             return GST_PAD_PROBE_REMOVE;
         },
         pipeline,
-        NULL
+        nullptr
     );
 }
 
@@ -451,7 +456,7 @@ void mock_camera(GstPipeline *pipeline, const std::string &)
     // if (!gst_element_link_many(src, parser, dec, conv, cf_conv, queue, appsink, nullptr)) {
     if (!gst_element_link_many(src, cf_src, appsink, nullptr)) {
         // if (!gst_element_link_many(src, cf_src, parser, dec, conv, cf_conv, appsink, nullptr)) {
-        g_error("Elements could not be linked.\n");
+        spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
         return;
     }
@@ -478,7 +483,7 @@ void parse_video_save_binary_h265(std::string &video_filepath)
                                " ! fakesink ";
     printf("pipeline_str: %s\n", pipeline_str.c_str());
 
-    GError *error = NULL;
+    GError *error = nullptr;
     GstElement *pipeline = gst_parse_launch(pipeline_str.c_str(), &error);
 
     if (!pipeline) {
@@ -500,7 +505,11 @@ void parse_video_save_binary_h265(std::string &video_filepath)
         };
         if (pad.get() != nullptr) {
             gst_pad_add_probe(
-                pad.get(), GST_PAD_PROBE_TYPE_BUFFER, h265_parse_saving_metadata, &bin_store, NULL
+                pad.get(),
+                GST_PAD_PROBE_TYPE_BUFFER,
+                h265_parse_saving_metadata,
+                &bin_store,
+                nullptr
             );
         }
     }
@@ -520,7 +529,7 @@ void parse_video_save_binary_h265(std::string &video_filepath)
         );
 
         // Handle errors and EOS messages
-        if (msg != NULL) {
+        if (msg != nullptr) {
             GError *err;
             gchar *debug_info;
 
@@ -570,7 +579,7 @@ void parse_video_save_binary_jpeg(std::string &video_filepath)
                                " ! fakesink ";
     printf("pipeline_str: %s\n", pipeline_str.c_str());
 
-    GError *error = NULL;
+    GError *error = nullptr;
     GstElement *pipeline = gst_parse_launch(pipeline_str.c_str(), &error);
 
     if (!pipeline) {
@@ -592,7 +601,11 @@ void parse_video_save_binary_jpeg(std::string &video_filepath)
         };
         if (pad.get() != nullptr) {
             gst_pad_add_probe(
-                pad.get(), GST_PAD_PROBE_TYPE_BUFFER, jpeg_parse_saving_metadata, &bin_store, NULL
+                pad.get(),
+                GST_PAD_PROBE_TYPE_BUFFER,
+                jpeg_parse_saving_metadata,
+                &bin_store,
+                nullptr
             );
         }
     }
@@ -612,7 +625,7 @@ void parse_video_save_binary_jpeg(std::string &video_filepath)
         );
 
         // Handle errors and EOS messages
-        if (msg != NULL) {
+        if (msg != nullptr) {
             GError *err;
             gchar *debug_info;
 
