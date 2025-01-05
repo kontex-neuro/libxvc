@@ -50,11 +50,13 @@ void Camera::start()
     payload["capability"] = _current_cap;
     payload["port"] = _port;
     cpr::Url url;
-    if (_current_cap.find("image/jpeg") != std::string::npos) {
+    if (_current_cap.find("image/jpeg") != std::string::npos ||
+        _current_cap.find("video/x-raw") != std::string::npos) {
         url = cpr::Url{JPEG};
     } else if (_id <= -1 && _id >= -10) {
         url = cpr::Url{Test};
     } else {
+        // TODO: disable h265 for now
         url = cpr::Url{H265};
     }
     auto response = cpr::Post(
