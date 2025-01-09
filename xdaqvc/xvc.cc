@@ -29,6 +29,18 @@
 #include "xdaqmetadata/key_value_store.h"
 #include "xdaqmetadata/xdaqmetadata.h"
 
+#include <curl/curl.h>
+#include <openssl/sha.h>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+
+#include <cpr/cpr.h>
+#include <fmt/format.h>
+#include <fstream>
+#include <thread>
+
+#include <nlohmann/json.hpp>
 
 using namespace std::chrono_literals;
 
@@ -64,6 +76,33 @@ static gchararray generate_filename(GstElement *, guint fragment_id, gpointer ud
     return g_strdup(filename.c_str());
 }
 
+
+size_t write_data(void* ptr, size_t size, size_t nmemb, FILE* stream) {
+    return fwrite(ptr, size, nmemb, stream);
+}
+
+std::string bytes_to_hex(const unsigned char* bytes, size_t len) {
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for (size_t i = 0; i < len; i++) {
+        ss << std::setw(2) << static_cast<int>(bytes[i]);
+    }
+    return ss.str();
+}
+
+bool handle_response(const cpr::Response& response) {
+    if (response.status_code == 200) {
+        auto json_response = nlohmann::json::parse(response.text);
+        return json_response["status"] == "success";
+    }
+    
+    spdlog::error(
+        "File transfer failed with status code: {} ({})", 
+        response.status_code, 
+        response.text
+    );
+    return false;
+}
 }  // namespace
 
 
@@ -725,6 +764,313 @@ void parse_video_save_binary_jpeg(const std::string &video_filepath)
     gst_element_set_state(pipeline.get(), GST_STATE_NULL);
 
     bin_store.closeFile();
+}
+
+std::optional<std::string> calculate_sha256(const std::filesystem::path& filepath) {
+    std::ifstream file(filepath, std::ios::binary);
+    if (!file) {
+        spdlog::error("Failed to open file for hashing: {}", filepath.string());
+        return std::nullopt;
+    }
+
+    SHA256_CTX sha256;
+    SHA256_Init(&sha256);
+
+    char buffer[4096];
+    while (file.read(buffer, sizeof(buffer))) {
+        SHA256_Update(&sha256, buffer, file.gcount());
+    }
+    if (file.gcount() > 0) {
+        SHA256_Update(&sha256, buffer, file.gcount());
+    }
+    
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_Final(hash, &sha256);
+
+    std::string calculated = bytes_to_hex(hash, SHA256_DIGEST_LENGTH);
+    spdlog::info("Calculated hash: {}", calculated);
+    return calculated;
+}
+
+DownloadResult download_and_verify(
+    const std::string& url,
+    const std::string& expected_hash,
+    const std::filesystem::path& output_path
+) {
+    DownloadResult result{false, ""};
+
+    // First, make a HEAD request to get the expected file size
+    auto head_response = cpr::Head(
+        cpr::Url{url},
+        cpr::VerifySsl{false},
+        cpr::Timeout{2s}
+    );
+
+    if (head_response.status_code != 200) {
+        result.error_message = "Failed to get file information: " + std::to_string(head_response.status_code);
+        return result;
+    }
+
+    size_t expected_size = 0;
+    if (head_response.header.count("Content-Length") > 0) {
+        expected_size = std::stoull(head_response.header["Content-Length"]);
+    }
+
+    // Perform the download
+    std::ofstream file(output_path, std::ios::binary);
+    if (!file) {
+        result.error_message = "Failed to open output file for writing";
+        return result;
+    }
+
+    auto response = cpr::Download(
+        file,
+        cpr::Url{url},
+        cpr::VerifySsl{false},
+        cpr::Timeout{2s}
+    );
+
+    file.close();
+
+    if (response.status_code != 200) {
+        result.error_message = "Download failed with status code: " + std::to_string(response.status_code);
+        std::filesystem::remove(output_path);
+        return result;
+    }
+
+    // Verify file size if we got the expected size
+    if (expected_size > 0) {
+        auto actual_size = std::filesystem::file_size(output_path);
+        if (actual_size != expected_size) {
+            result.error_message = fmt::format(
+                "File size mismatch. Expected: {}, Got: {}", 
+                expected_size, 
+                actual_size
+            );
+            std::filesystem::remove(output_path);
+            return result;
+        }
+    }
+
+    // Ensure all data is synced to disk
+    std::filesystem::path temp_path = output_path.parent_path() / (output_path.filename().string() + ".tmp");
+    std::filesystem::rename(output_path, temp_path);
+    std::filesystem::rename(temp_path, output_path);
+
+    // If no hash is provided, skip verification
+    if (expected_hash.empty()) {
+        result.success = true;
+        return result;
+    }
+
+    // Add a small delay to ensure filesystem sync
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    // Verify SHA256 hash
+    auto calculated_hash = calculate_sha256(output_path);
+    if (!calculated_hash) {
+        result.error_message = "Failed to calculate file hash";
+        std::filesystem::remove(output_path);
+        return result;
+    }
+
+    spdlog::info("File size: {} bytes", std::filesystem::file_size(output_path));
+    spdlog::info("Expected hash: {}", expected_hash);
+    spdlog::info("Calculated hash: {}", *calculated_hash);
+
+    if (*calculated_hash != expected_hash) {
+        result.error_message = "Hash verification failed";
+        std::filesystem::remove(output_path);
+        return result;
+    }
+
+    result.success = true;
+    return result;
+}
+
+HandshakeResponse perform_handshake(const std::string& server_address, int port) {
+    HandshakeResponse response{false, "", "", {}};
+    
+    try {
+        std::string url = fmt::format("http://{}:{}/handshake", server_address, port);
+        
+        spdlog::info("Attempting handshake with server at {}", url);
+        
+        auto http_response = cpr::Get(
+            cpr::Url{url},
+            cpr::Timeout{2s},
+            cpr::Header{{"User-Agent", "XVC-Client"}}
+        );
+
+        if (http_response.status_code == 200) {
+            try {
+                auto json_response = nlohmann::json::parse(http_response.text);
+                spdlog::debug("Raw server response: {}", http_response.text);
+                
+                if (json_response["status"] == "ready") {
+                    response.success = true;
+                    response.token = json_response["token"].get<std::string>();
+                    
+                    // Get current UTC time
+                    auto now = std::chrono::system_clock::now();
+                    auto now_ts = std::chrono::system_clock::to_time_t(now);
+                    
+                    // Get expiration time from server (as UTC timestamp)
+                    int64_t expire_timestamp = json_response["expires"].get<int64_t>();
+                    response.expires = std::chrono::system_clock::from_time_t(expire_timestamp);
+                    
+                    // Format times in UTC
+                    std::tm now_tm_utc{}, expire_tm_utc{};
+#ifdef _WIN32
+                    gmtime_s(&now_tm_utc, &now_ts);
+                    gmtime_s(&expire_tm_utc, &expire_timestamp);
+#else
+                    gmtime_r(&now_ts, &now_tm_utc);
+                    gmtime_r(&expire_timestamp, &expire_tm_utc);
+#endif
+                    char now_str[32], expire_str[32];
+                    std::strftime(now_str, sizeof(now_str), "%Y-%m-%d %H:%M:%S UTC", &now_tm_utc);
+                    std::strftime(expire_str, sizeof(expire_str), "%Y-%m-%d %H:%M:%S UTC", &expire_tm_utc);
+                    
+                    spdlog::info("Handshake successful!");
+                    spdlog::info("Current UTC time: {}", now_str);
+                    spdlog::info("Current UTC timestamp: {}", now_ts);
+                    spdlog::info("Session token: {}", response.token);
+                    spdlog::info("Token expires (UTC): {}", expire_str);
+                    spdlog::info("Expire UTC timestamp: {}", expire_timestamp);
+                    spdlog::info("Time until expiration: {} seconds", expire_timestamp - now_ts);
+                }
+            } catch (const nlohmann::json::exception& e) {
+                response.error_message = fmt::format("Invalid handshake response format: {}", e.what());
+                spdlog::error("JSON parse error: {}", e.what());
+            }
+        } else {
+            response.error_message = fmt::format("Handshake failed with status code: {}", 
+                http_response.status_code);
+            spdlog::error("HTTP error: {}", response.error_message);
+        }
+        
+    } catch (const std::exception& e) {
+        response.error_message = fmt::format("Handshake failed with exception: {}", e.what());
+        spdlog::error("Exception: {}", e.what());
+    }
+    
+    return response;
+}
+
+bool prepare_file_transfer(
+    const std::string& server_address,
+    int port,
+    const std::string& token,
+    const std::string& filename,
+    const std::string& file_hash,
+    size_t file_size,
+    std::string& out_transfer_id
+) {
+    try {
+        std::string url = fmt::format("http://{}:{}/prepare-transfer", server_address, port);
+
+        nlohmann::json request_body = {
+            {"filename", filename},
+            {"file_hash", file_hash},
+            {"file_size", file_size}
+        };
+
+        auto response = cpr::Post(
+            cpr::Url{url},
+            cpr::Header{
+                {"Authorization", fmt::format("Bearer {}", token)},
+                {"Content-Type", "application/json"}
+            },
+            cpr::Body{request_body.dump()},
+            cpr::Timeout{5s}
+        );
+
+        if (response.status_code == 200) {
+            auto json_response = nlohmann::json::parse(response.text);
+            if (json_response["status"] == "ready") {
+                out_transfer_id = json_response["transfer_id"];
+                return true;
+            }
+        }
+        
+        spdlog::error("Failed to prepare transfer: {} ({})", 
+            response.text, response.status_code);
+        return false;
+        
+    } catch (const std::exception& e) {
+        spdlog::error("Error preparing transfer: {}", e.what());
+        return false;
+    }
+}
+
+bool transfer_file(
+    const std::string& server_address,
+    int port,
+    const std::string& token,
+    const std::filesystem::path& file_path,
+    const std::string& transfer_id,
+    ProgressCallback progress_callback
+) {
+    try {
+        std::string url = fmt::format(
+            "http://{}:{}/transfer/{}", 
+            server_address, 
+            port,
+            transfer_id
+        );
+        
+        // Open and read file
+        std::ifstream file(file_path, std::ios::binary);
+        if (!file) {
+            spdlog::error("Failed to open file: {}", file_path.string());
+            return false;
+        }
+        
+        // Create multipart form data
+        cpr::Multipart multipart{};
+        multipart.parts.emplace_back(
+            "file",
+            cpr::File{file_path.string()}
+        );
+
+        // Setup progress callback if provided
+        if (progress_callback) {
+            auto progress_fn = [callback = std::move(progress_callback), 
+                file_size = std::filesystem::file_size(file_path)]
+                (size_t dl_total, size_t dl_now, size_t ul_total, size_t ul_now, intptr_t) -> bool {
+                callback({
+                    ul_now,
+                    file_size,
+                    (float)ul_now / file_size * 100.0f
+                });
+                return true;
+            };
+
+            auto response = cpr::Post(
+                cpr::Url{url},
+                cpr::Header{{"Authorization", fmt::format("Bearer {}", token)}},
+                multipart,
+                cpr::ProgressCallback{progress_fn},
+                cpr::Timeout{30s}
+            );
+
+            return handle_response(response);
+        } else {
+            auto response = cpr::Post(
+                cpr::Url{url},
+                cpr::Header{{"Authorization", fmt::format("Bearer {}", token)}},
+                multipart,
+                cpr::Timeout{30s}
+            );
+
+            return handle_response(response);
+        }
+        
+    } catch (const std::exception& e) {
+        spdlog::error("File transfer failed: {}", e.what());
+        return false;
+    }
 }
 
 }  // namespace xvc
