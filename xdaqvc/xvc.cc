@@ -800,11 +800,12 @@ DownloadResult download_and_verify(
 )
 {
     DownloadResult result{false, ""};
+    constexpr int MAX_RETRIES = 3;
+    constexpr std::chrono::seconds TIMEOUT{30};
 
     try {
         // First, make a HEAD request to get the expected file size
         auto head_response = cpr::Head(cpr::Url{url}, cpr::VerifySsl{false}, cpr::Timeout{2s});
-
         if (head_response.status_code != 200) {
             result.error_message =
                 fmt::format("Failed to get file information: {}", head_response.status_code);
@@ -817,56 +818,101 @@ DownloadResult download_and_verify(
             expected_size = std::stoull(head_response.header["Content-Length"]);
         }
 
-        // Download the file
-        std::ofstream file(output_path, std::ios::binary);
-        if (!file) {
-            result.error_message = "Failed to open output file for writing";
-            return result;
-        }
-
-        auto response = cpr::Download(
-            file, cpr::Url{url}, cpr::VerifySsl{false}, cpr::Timeout{30s}
-            // Increased timeout for larger files
-        );
-
-        file.close();
-
-        if (response.status_code != 200) {
-            result.error_message =
-                fmt::format("Download failed with status code: {}", response.status_code);
-            std::filesystem::remove(output_path);
-            return result;
-        }
-
-        // Verify file size
-        if (expected_size > 0) {
-            auto actual_size = std::filesystem::file_size(output_path);
-            if (actual_size != expected_size) {
-                result.error_message = fmt::format(
-                    "File size mismatch. Expected: {}, Got: {}", expected_size, actual_size
-                );
-                std::filesystem::remove(output_path);
+        // Retry loop
+        for (int attempt = 1; attempt <= MAX_RETRIES; ++attempt) {
+            std::ofstream file(output_path, std::ios::binary);
+            if (!file) {
+                result.error_message = "Failed to open output file for writing";
                 return result;
             }
-        }
 
-        // Calculate and verify hash
-        auto calculated_hash = calculate_sha256(output_path);
-        if (!calculated_hash) {
-            result.error_message = "Failed to calculate file hash";
-            std::filesystem::remove(output_path);
-            return result;
-        }
+            // Track last reported progress
+            size_t last_progress = 0;
 
-        if (*calculated_hash != expected_hash) {
-            result.error_message = fmt::format(
-                "Hash verification failed. Expected: {}, Got: {}", expected_hash, *calculated_hash
+            // Progress callback
+            auto progress_callback = [&last_progress, expected_size](
+                                         size_t downloadTotal,
+                                         size_t downloadNow,
+                                         size_t uploadTotal,
+                                         size_t uploadNow,
+                                         intptr_t userdata
+                                     ) -> bool {
+                if (downloadTotal > 0) {
+                    float progress_percentage =
+                        static_cast<float>(downloadNow) / downloadTotal * 100.0f;
+                    if (downloadNow != last_progress) {
+                        last_progress = downloadNow;
+                        spdlog::info(
+                            "Download progress: {:.1f}% ({}/{} bytes)",
+                            progress_percentage,
+                            downloadNow,
+                            downloadTotal
+                        );
+                    }
+                }
+                return true;  // Continue transfer
+            };
+
+            // Perform the download
+            auto response = cpr::Download(
+                file,
+                cpr::Url{url},
+                cpr::VerifySsl{false},
+                cpr::Timeout{TIMEOUT},
+                cpr::ProgressCallback(progress_callback)
             );
-            std::filesystem::remove(output_path);
+
+            file.close();
+
+            if (response.status_code != 200) {
+                spdlog::warn(
+                    "Download attempt {} failed with status code: {}. Retrying...",
+                    attempt,
+                    response.status_code
+                );
+                std::this_thread::sleep_for(std::chrono::seconds(attempt));
+                continue;
+            }
+
+            // Verify file size
+            if (expected_size > 0) {
+                auto actual_size = std::filesystem::file_size(output_path);
+                if (actual_size != expected_size) {
+                    spdlog::warn(
+                        "File size mismatch. Expected: {}, Got: {}. Retrying...",
+                        expected_size,
+                        actual_size
+                    );
+                    std::filesystem::remove(output_path);
+                    continue;
+                }
+            }
+
+            // Calculate and verify hash
+            auto calculated_hash = calculate_sha256(output_path);
+            if (!calculated_hash) {
+                spdlog::warn("Failed to calculate file hash. Retrying...");
+                std::filesystem::remove(output_path);
+                continue;
+            }
+
+            if (*calculated_hash != expected_hash) {
+                spdlog::warn(
+                    "Hash verification failed. Expected: {}, Got: {}. Retrying...",
+                    expected_hash,
+                    *calculated_hash
+                );
+                std::filesystem::remove(output_path);
+                continue;
+            }
+
+            // If we get here, all verifications passed
+            result.success = true;
             return result;
         }
 
-        result.success = true;
+        // If retries are exhausted
+        result.error_message = "Failed to download file after multiple attempts.";
         return result;
 
     } catch (const std::exception &e) {
@@ -877,6 +923,7 @@ DownloadResult download_and_verify(
         return result;
     }
 }
+
 
 HandshakeResponse perform_handshake(const std::string &server_address, int port)
 {
