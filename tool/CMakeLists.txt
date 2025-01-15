@@ -16,33 +16,25 @@ target_compile_options(xvc_tool
         # $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
 )
 
-# Common settings for all test executables
-function(add_xvc_test name)
-    add_executable(${name} ${name}.cc)
-    target_include_directories(${name} 
-        PRIVATE 
-            ${CMAKE_SOURCE_DIR}
-            ${CONAN_INCLUDE_DIRS}
-    )
-    target_link_libraries(${name} 
-        PRIVATE 
-            libxvc
-            fmt::fmt
-            spdlog::spdlog
-            PkgConfig::gstreamer
-            cpr::cpr
-            nlohmann_json::nlohmann_json
-    )
-    target_compile_features(${name} PRIVATE cxx_std_20)
-    target_compile_options(${name}
-        PRIVATE
-            $<$<CXX_COMPILER_ID:MSVC>:/W4>
-            $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
-    )
-endfunction()
 
-# Add test executables
-add_xvc_test(test_handshake)
-add_xvc_test(test_prepare_transfer)
-add_xvc_test(test_download_verify)
-add_xvc_test(test_transfer_file)
+
+# Add the new update tool
+add_executable(xvc_update_tool xvc_update_tool.cc)
+target_link_libraries(xvc_update_tool
+PRIVATE
+Boost::program_options
+fmt::fmt
+spdlog::spdlog
+libxvc
+)
+target_compile_features(xvc_update_tool PRIVATE cxx_std_20)
+target_compile_options(xvc_update_tool
+PRIVATE
+$<$<CXX_COMPILER_ID:MSVC>:/W4>
+$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+)
+# Include directories
+target_include_directories(xvc_update_tool
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}
+)

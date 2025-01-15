@@ -2,11 +2,13 @@
 
 #include <gst/gstpipeline.h>
 
-#include <filesystem>
-#include <string>
-#include <optional>
 #include <chrono>
+#include <filesystem>
 #include <functional>
+#include <optional>
+#include <string>
+#include <vector>
+
 
 namespace fs = std::filesystem;
 
@@ -35,25 +37,29 @@ struct DownloadResult {
     std::string error_message;
 };
 
-/**
- * Downloads a file from a URL and verifies its SHA256 hash
- * @param url The URL to download the file from
- * @param expected_hash The expected SHA256 hash of the file
- * @param output_path The path where the downloaded file should be saved
- * @return DownloadResult containing success status and error message if any
- */
+class Version
+{
+public:
+    int major;
+    int minor;
+    int patch;
+
+    bool operator==(const Version &other) const;
+    bool operator>(const Version &other) const;
+    bool operator<(const Version &other) const;
+    bool operator>=(const Version &other) const;
+    bool operator<=(const Version &other) const;
+
+    static std::optional<Version> from_string(const std::string &version_str);
+    std::string to_string() const;
+};
+
 DownloadResult download_and_verify(
-    const std::string& url,
-    const std::string& expected_hash,
-    const std::filesystem::path& output_path
+    const std::string &url, const std::string &expected_hash,
+    const std::filesystem::path &output_path
 );
 
-/**
- * Calculates SHA256 hash of a file
- * @param filepath Path to the file
- * @return Optional string containing the hash, or nullopt if operation failed
- */
-std::optional<std::string> calculate_sha256(const std::filesystem::path& filepath);
+std::optional<std::string> calculate_sha256(const std::filesystem::path &filepath);
 
 struct HandshakeResponse {
     bool success;
@@ -62,7 +68,7 @@ struct HandshakeResponse {
     std::chrono::system_clock::time_point expires;
 };
 
-HandshakeResponse perform_handshake(const std::string& server_address, int port);
+HandshakeResponse perform_handshake(const std::string &server_address, int port);
 
 struct FileTransferProgress {
     size_t bytes_transferred;
@@ -70,24 +76,55 @@ struct FileTransferProgress {
     float progress_percentage;
 };
 
-using ProgressCallback = std::function<void(const FileTransferProgress&)>;
+using ProgressCallback = std::function<void(const FileTransferProgress &)>;
 
 bool prepare_file_transfer(
-    const std::string& server_address,
-    int port,
-    const std::string& token,
-    const std::string& filename,
-    const std::string& file_hash,
-    size_t file_size,
-    std::string& out_transfer_id
+    const std::string &server_address, int port, const std::string &token,
+    const std::string &filename, const std::string &file_hash, size_t file_size,
+    std::string &out_transfer_id
 );
 
 bool transfer_file(
-    const std::string& server_address,
-    int port,
-    const std::string& token,
-    const std::filesystem::path& file_path,
-    const std::string& transfer_id,
+    const std::string &server_address, int port, const std::string &token,
+    const std::filesystem::path &file_path, const std::string &transfer_id,
     ProgressCallback progress_callback = nullptr
+);
+
+struct UpdateInfo {
+    Version version;
+    std::string release_date;
+    std::string update_url;
+    std::string hash;
+    Version min_client_version;
+    std::string description;
+};
+
+struct VersionTable {
+    Version latest_version;
+    std::vector<UpdateInfo> versions;
+};
+
+struct UpdateResult {
+    bool success;
+    std::string error_message;
+    Version current_version;
+    Version available_version;
+    bool update_needed;
+};
+
+// Get server version
+std::optional<Version> get_server_version(const std::string &server_address, int port);
+
+// Get version table from CDN
+std::optional<VersionTable> get_version_table(const std::string &table_url);
+
+// Main update function
+UpdateResult update_server(
+    const std::string &server_address,
+    int server_port,         // Port of the server to be updated
+    int update_server_port,  // Port of the update server
+    const std::string &table_url, const std::filesystem::path &update_dir,
+    const Version &client_version, bool skip_version_check = false,
+    const std::optional<Version> &force_version = std::nullopt
 );
 }  // namespace xvc

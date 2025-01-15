@@ -10,6 +10,7 @@
 * nlohmann/json ([MIT License](https://github.com/nlohmann/json/blob/develop/LICENSE.MIT))
 * cpr ([MIT License](https://github.com/libcpr/cpr/blob/master/LICENSE))
 * GStreamer ([LGPL-2.1](https://github.com/GStreamer/gstreamer/blob/main/LICENSE))
+* googletest ([BSD 3-Clause](https://github.com/google/googletest/blob/main/LICENSE))
 
 ## Build instructions
     conan install . -b missing -pr:a <profile> -s build_type=Release
@@ -18,3 +19,10 @@
     
 ## Export as conan package to local cache
     conan export-pkg . -pr:a <profile> -s build_type=Release
+
+## Run updater tests
+    conan install . -b missing -pr:a default -s build_type=Release -o build_testing=True
+    cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+    cmake --build build/Release --preset conan-release --target xvc_updater_tests
+    cd ./build/Release/test
+    ctest --output-on-failure

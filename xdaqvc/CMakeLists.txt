@@ -37,10 +37,8 @@ set_target_properties(libxvc PROPERTIES
 target_compile_features(libxvc PUBLIC cxx_std_20)
 target_compile_options(libxvc
     PRIVATE
-        $<$<CXX_COMPILER_ID:MSVC>:/W4>
-        # $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+        $<$<CXX_COMPILER_ID:MSVC>:/W4 /wd4702>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
-        # $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
 )
 target_link_libraries(libxvc 
     PUBLIC
