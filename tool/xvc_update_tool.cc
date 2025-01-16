@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
          "Update server port")
         ("version-table,t", 
          po::value<std::string>(&version_table_url)
-         ->default_value("https://xvc001.sgp1.cdn.digitaloceanspaces.com/versions.json"),
+         ->default_value("https://xvc001.sgp1.digitaloceanspaces.com/versions.json"),
          "Version table URL")
         ("update-dir,d", po::value<std::string>(&update_dir)->default_value("updates"),
          "Directory for downloaded updates")

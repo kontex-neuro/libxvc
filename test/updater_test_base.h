@@ -17,7 +17,7 @@ protected:
         server_address = "192.168.177.100";
         server_port = 8000;
         update_server_port = 8001;
-        version_table_url = "https://xvc001.sgp1.cdn.digitaloceanspaces.com/versions.json";
+        version_table_url = "https://xvc001.sgp1.digitaloceanspaces.com/versions.json";
         update_dir = "test_updates";
         test_file = "xvc-server-0.0.1.tar.xz";
         client_version = xvc::Version{0, 0, 1};

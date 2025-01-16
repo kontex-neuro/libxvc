@@ -21,7 +21,7 @@
     conan export-pkg . -pr:a <profile> -s build_type=Release
 
 ## Run updater tests
-    conan install . -b missing -pr:a default -s build_type=Release -o build_testing=True
+    conan install . -b missing -pr:a <profile> -s build_type=Release -o build_testing=True
     cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
     cmake --build build/Release --preset conan-release --target xvc_updater_tests
     cd ./build/Release/test
