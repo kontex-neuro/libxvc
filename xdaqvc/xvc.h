@@ -24,7 +24,7 @@ void start_jpeg_recording(
 );
 void stop_jpeg_recording(GstPipeline *pipeline);
 
-void parse_video_save_binary_h265(std::string &filepath);
-void parse_video_save_binary_jpeg(std::string &filepath);
+void parse_video_save_binary_h265(const std::string &filepath);
+void parse_video_save_binary_jpeg(const std::string &filepath);
 
 }  // namespace xvc

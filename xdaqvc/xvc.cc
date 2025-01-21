@@ -23,13 +23,11 @@
 #include <gst/video/video-info.h>
 #include <spdlog/spdlog.h>
 
-#include <iostream>
 #include <memory>
 #include <string>
 
 #include "xdaqmetadata/key_value_store.h"
 #include "xdaqmetadata/xdaqmetadata.h"
-
 
 
 using namespace std::chrono_literals;
@@ -61,9 +59,6 @@ static gchararray generate_filename(GstElement *, guint fragment_id, gpointer ud
 #endif
 
     auto timestamp = fmt::format("{:%Y-%m-%d_%H-%M-%S}", tm_now);
-
-    spdlog::info("timestamp = {}", timestamp);
-
     auto filename = fmt::format("{}-{}-{}.mkv", *base_filename, fragment_id, timestamp);
 
     return g_strdup(filename.c_str());
@@ -486,196 +481,198 @@ void mock_camera(GstPipeline *pipeline, const std::string &)
     }
 }
 
-void parse_video_save_binary_h265(std::string &video_filepath)
+void parse_video_save_binary_h265(const std::string &video_filepath)
 {
-    std::string bin_file_name = video_filepath;
+    auto bin_file_name = video_filepath;
     bin_file_name.replace(bin_file_name.end() - 3, bin_file_name.end(), "bin");
 
     spdlog::info("parse_video_save_binary: {}", bin_file_name);
 
     KeyValueStore bin_store(bin_file_name);
 
-    std::cout << "bin_file_name: " << bin_file_name << std::endl;
-
     bin_store.openFile();
 
-    std::string pipeline_str = " filesrc location=\"" + video_filepath +
-                               "\" "
-                               " ! matroskademux "
-                               " ! h265parse name=h265parse "
-                               " ! video/x-h265, stream-format=byte-stream, alignment=au "
-                               " ! fakesink ";
-    printf("pipeline_str: %s\n", pipeline_str.c_str());
+    auto pipeline_str = fmt::format(
+        "filesrc location=\"{}\" ! matroskademux ! h265parse name=h265parse ! video/x-h265, "
+        "stream-format=byte-stream, alignment=au ! fakesink",
+        video_filepath
+    );
+
+    spdlog::info("pipeline_str = {}", pipeline_str);
 
     GError *error = nullptr;
-    GstElement *pipeline = gst_parse_launch(pipeline_str.c_str(), &error);
+    std::unique_ptr<GstElement, decltype(&gst_object_unref)> pipeline(
+        gst_parse_launch(pipeline_str.c_str(), &error), gst_object_unref
+    );
 
     if (!pipeline) {
-        std::cerr << "Failed to create pipeline: " << error->message << std::endl;
+        spdlog::error("Failed to create pipeline: {}", error->message);
         g_clear_error(&error);
         return;
     }
 
-    // parse pts : h265parse src
-    std::unique_ptr<GstElement, decltype(&gst_object_unref)> h265parse{
-        gst_bin_get_by_name(GST_BIN(pipeline), "h265parse"), gst_object_unref
-    };
-    if (h265parse.get() == nullptr) {
-        std::cerr << "Failed to get h265parse element" << std::endl;
+    std::unique_ptr<GstElement, decltype(&gst_object_unref)> h265parse(
+        gst_bin_get_by_name(GST_BIN(pipeline.get()), "h265parse"), gst_object_unref
+    );
+
+    if (!h265parse) {
+        spdlog::error("Failed to get h265parse element");
         return;
-    } else {
-        std::unique_ptr<GstPad, decltype(&gst_object_unref)> pad{
-            gst_element_get_static_pad(h265parse.get(), "src"), gst_object_unref
-        };
-        if (pad.get() != nullptr) {
-            gst_pad_add_probe(
-                pad.get(),
-                GST_PAD_PROBE_TYPE_BUFFER,
-                h265_parse_saving_metadata,
-                &bin_store,
-                nullptr
-            );
-        }
     }
 
-    // Start playing the pipeline
-    gst_element_set_state(pipeline, GST_STATE_PLAYING);
+    std::unique_ptr<GstPad, decltype(&gst_object_unref)> src_pad{
+        gst_element_get_static_pad(h265parse.get(), "src"), gst_object_unref
+    };
+
+    if (!src_pad) {
+        spdlog::error("Failed to get h265parse's src pad");
+        return;
+    }
+
+    gst_pad_add_probe(
+        src_pad.get(), GST_PAD_PROBE_TYPE_BUFFER, h265_parse_saving_metadata, &bin_store, nullptr
+    );
+
+    gst_element_set_state(pipeline.get(), GST_STATE_PLAYING);
 
     // Event loop to keep the pipeline running
-    GstBus *bus = gst_element_get_bus(pipeline);
-    GstMessage *msg;
+    std::unique_ptr<GstBus, decltype(&gst_object_unref)> bus = {
+        gst_element_get_bus(pipeline.get()), gst_object_unref
+    };
     bool terminate = false;
 
     while (!terminate) {
         // Wait for a message for up to 100 milliseconds
-        msg = gst_bus_timed_pop_filtered(
-            bus, 100 * GST_MSECOND, static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS)
+        std::unique_ptr<GstMessage, decltype(&gst_message_unref)> msg(
+            gst_bus_timed_pop_filtered(
+                bus.get(),
+                100 * GST_MSECOND,
+                static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS)
+            ),
+            gst_message_unref
         );
 
         // Handle errors and EOS messages
-        if (msg != nullptr) {
+        if (msg) {
             GError *err;
             gchar *debug_info;
 
-            switch (GST_MESSAGE_TYPE(msg)) {
+            switch (GST_MESSAGE_TYPE(msg.get())) {
             case GST_MESSAGE_ERROR:
-                gst_message_parse_error(msg, &err, &debug_info);
-                std::cerr << "Error from element " << GST_OBJECT_NAME(msg->src) << ": "
-                          << err->message << std::endl;
+                gst_message_parse_error(msg.get(), &err, &debug_info);
+                spdlog::error("Error from element {}:", GST_OBJECT_NAME(msg->src), err->message);
                 g_clear_error(&err);
                 g_free(debug_info);
                 terminate = true;
                 break;
             case GST_MESSAGE_EOS:
-                std::cout << "End-Of-Stream reached." << std::endl;
+                spdlog::info("End-Of-Stream reached.");
                 terminate = true;
                 break;
             default: break;
             }
-            gst_message_unref(msg);
         }
     }
 
-    // Clean up and shutdown the pipeline
-    gst_object_unref(bus);
-    gst_element_set_state(pipeline, GST_STATE_NULL);
-    gst_object_unref(pipeline);
+    gst_element_set_state(pipeline.get(), GST_STATE_NULL);
+
     bin_store.closeFile();
 }
 
-void parse_video_save_binary_jpeg(std::string &video_filepath)
+void parse_video_save_binary_jpeg(const std::string &video_filepath)
 {
-    std::string bin_file_name = video_filepath;
+    auto bin_file_name = video_filepath;
     bin_file_name.replace(bin_file_name.end() - 3, bin_file_name.end(), "bin");
 
     spdlog::info("parse_video_save_binary: {}", bin_file_name);
 
     KeyValueStore bin_store(bin_file_name);
 
-    std::cout << "bin_file_name: " << bin_file_name << std::endl;
-
     bin_store.openFile();
 
-    std::string pipeline_str = " filesrc location=\"" + video_filepath +
-                               "\" "
-                               " ! matroskademux "
-                               " ! jpegparse name=jpegparse "
-                               " ! fakesink ";
-    printf("pipeline_str: %s\n", pipeline_str.c_str());
+    auto pipeline_str = fmt::format(
+        "filesrc location=\"{}\" ! matroskademux ! jpegparse name=jpegparse ! fakesink",
+        video_filepath
+    );
+
+    spdlog::info("pipeline_str = {}", pipeline_str);
 
     GError *error = nullptr;
-    GstElement *pipeline = gst_parse_launch(pipeline_str.c_str(), &error);
+    std::unique_ptr<GstElement, decltype(&gst_object_unref)> pipeline(
+        gst_parse_launch(pipeline_str.c_str(), &error), gst_object_unref
+    );
 
     if (!pipeline) {
-        std::cerr << "Failed to create pipeline: " << error->message << std::endl;
+        spdlog::error("Failed to create pipeline: {}", error->message);
         g_clear_error(&error);
         return;
     }
 
-    // parse pts : h265parse src
     std::unique_ptr<GstElement, decltype(&gst_object_unref)> jpegparse{
-        gst_bin_get_by_name(GST_BIN(pipeline), "jpegparse"), gst_object_unref
+        gst_bin_get_by_name(GST_BIN(pipeline.get()), "jpegparse"), gst_object_unref
     };
-    if (jpegparse.get() == nullptr) {
-        std::cerr << "Failed to get h265parse element" << std::endl;
+
+    if (!jpegparse) {
+        spdlog::error("Failed to get jpegparse element");
         return;
-    } else {
-        std::unique_ptr<GstPad, decltype(&gst_object_unref)> pad{
-            gst_element_get_static_pad(jpegparse.get(), "src"), gst_object_unref
-        };
-        if (pad.get() != nullptr) {
-            gst_pad_add_probe(
-                pad.get(),
-                GST_PAD_PROBE_TYPE_BUFFER,
-                jpeg_parse_saving_metadata,
-                &bin_store,
-                nullptr
-            );
-        }
     }
 
-    // Start playing the pipeline
-    gst_element_set_state(pipeline, GST_STATE_PLAYING);
+    std::unique_ptr<GstPad, decltype(&gst_object_unref)> src_pad{
+        gst_element_get_static_pad(jpegparse.get(), "src"), gst_object_unref
+    };
+
+    if (!src_pad) {
+        spdlog::error("Failed to get jpegparse's src pad");
+        return;
+    }
+
+    gst_pad_add_probe(
+        src_pad.get(), GST_PAD_PROBE_TYPE_BUFFER, jpeg_parse_saving_metadata, &bin_store, nullptr
+    );
+
+    gst_element_set_state(pipeline.get(), GST_STATE_PLAYING);
 
     // Event loop to keep the pipeline running
-    GstBus *bus = gst_element_get_bus(pipeline);
-    GstMessage *msg;
+    std::unique_ptr<GstBus, decltype(&gst_object_unref)> bus = {
+        gst_element_get_bus(pipeline.get()), gst_object_unref
+    };
     bool terminate = false;
 
     while (!terminate) {
         // Wait for a message for up to 100 milliseconds
-        msg = gst_bus_timed_pop_filtered(
-            bus, 100 * GST_MSECOND, static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS)
+        std::unique_ptr<GstMessage, decltype(&gst_message_unref)> msg(
+            gst_bus_timed_pop_filtered(
+                bus.get(),
+                100 * GST_MSECOND,
+                static_cast<GstMessageType>(GST_MESSAGE_ERROR | GST_MESSAGE_EOS)
+            ),
+            gst_message_unref
         );
 
         // Handle errors and EOS messages
-        if (msg != nullptr) {
+        if (msg) {
             GError *err;
             gchar *debug_info;
 
-            switch (GST_MESSAGE_TYPE(msg)) {
+            switch (GST_MESSAGE_TYPE(msg.get())) {
             case GST_MESSAGE_ERROR:
-                gst_message_parse_error(msg, &err, &debug_info);
-                std::cerr << "Error from element " << GST_OBJECT_NAME(msg->src) << ": "
-                          << err->message << std::endl;
+                gst_message_parse_error(msg.get(), &err, &debug_info);
+                spdlog::error("Error from element {}:", GST_OBJECT_NAME(msg->src), err->message);
                 g_clear_error(&err);
                 g_free(debug_info);
                 terminate = true;
                 break;
             case GST_MESSAGE_EOS:
-                std::cout << "End-Of-Stream reached." << std::endl;
+                spdlog::info("End-Of-Stream reached.");
                 terminate = true;
                 break;
             default: break;
             }
-            gst_message_unref(msg);
         }
     }
 
-    // Clean up and shutdown the pipeline
-    gst_object_unref(bus);
-    gst_element_set_state(pipeline, GST_STATE_NULL);
-    gst_object_unref(pipeline);
+    gst_element_set_state(pipeline.get(), GST_STATE_NULL);
+
     bin_store.closeFile();
 }
 
