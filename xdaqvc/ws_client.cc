@@ -130,21 +130,18 @@ void session::on_close(beast::error_code ec)
     spdlog::debug("WebSocket closed gracefully");
 }
 
-ws_client::ws_client(
-    const std::string &host, const std::string &port, std::function<void(std::string)> handler
-)
-    : _event_handler(std::move(handler))
+ws_client::ws_client(std::function<void(std::string)> handler) : _event_handler(std::move(handler))
 {
     _ioc = std::make_unique<net::io_context>();
 
-    _runner = std::jthread([this, host, port]() {
+    _runner = std::jthread([this, host = "192.168.177.100", port = "8000"]() {
         try {
             // Launch the asynchronous operation
             _session = std::make_shared<session>(*_ioc, [this](const std::string &event) {
                 _event_handler(event);
             });
 
-            _session->run(host.c_str(), port.c_str());
+            _session->run(host, port);
 
             // Run the I/O service. The call will return when
             // the socket is closed.

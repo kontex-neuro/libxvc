@@ -53,11 +53,9 @@ public:
 class ws_client
 {
 public:
-    ws_client(
-        const std::string &host, const std::string &port, std::function<void(std::string)> handler
-    );
+    ws_client(std::function<void(std::string)> handler);
     ~ws_client();
-    
+
 private:
     std::shared_ptr<session> _session;
     std::unique_ptr<net::io_context> _ioc;
