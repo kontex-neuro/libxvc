@@ -13,14 +13,16 @@ using namespace std::chrono_literals;
 
 namespace
 {
-constexpr auto Cameras = "192.168.177.100:8000/cameras";
-constexpr auto Test = "127.0.0.1:8000/mock";
-// constexpr auto Mock = "192.168.177.100:8000/mock";
-constexpr auto JPEG = "192.168.177.100:8000/jpeg";
-constexpr auto H265 = "192.168.177.100:8000/h265";
-constexpr auto Stop = "192.168.177.100:8000/stop";
-constexpr auto OK = 200;
-constexpr auto Timeout = 2s;
+auto constexpr Cameras = "192.168.177.100:8000/cameras";
+auto constexpr jpeg = "192.168.177.100:8000/jpeg";
+auto constexpr test = "192.168.177.100:8000/test";
+auto constexpr H265 = "192.168.177.100:8000/h265";
+auto constexpr Stop = "192.168.177.100:8000/stop";
+auto constexpr OK = 200;
+auto constexpr Timeout = 2s;
+
+auto constexpr VIDEO_MJPEG = "image/jpeg";
+auto constexpr VIDEO_RAW = "video/x-raw";
 
 PortPool pool(9000, 9010);
 
@@ -50,11 +52,11 @@ void Camera::start()
     payload["capability"] = _current_cap;
     payload["port"] = _port;
     cpr::Url url;
-    if (_current_cap.find("image/jpeg") != std::string::npos ||
-        _current_cap.find("video/x-raw") != std::string::npos) {
-        url = cpr::Url{JPEG};
-    } else if (_id <= -1 && _id >= -10) {
-        url = cpr::Url{Test};
+    if (_id <= -1 && _id >= -10) {
+        url = cpr::Url{test};
+    } else if (_current_cap.find(VIDEO_MJPEG) != std::string::npos ||
+               _current_cap.find(VIDEO_RAW) != std::string::npos) {
+        url = cpr::Url{jpeg};
     } else {
         // TODO: disable h265 for now
         url = cpr::Url{H265};

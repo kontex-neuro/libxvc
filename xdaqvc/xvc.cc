@@ -1,5 +1,6 @@
 #include "xvc.h"
 
+#include <fmt/chrono.h>
 #include <fmt/core.h>
 #include <glib-object.h>
 #include <glib.h>
@@ -22,27 +23,52 @@
 #include <gst/video/video-info.h>
 #include <spdlog/spdlog.h>
 
-#include <cstddef>
-#include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 
 #include "xdaqmetadata/key_value_store.h"
 #include "xdaqmetadata/xdaqmetadata.h"
 
 
+
 using namespace std::chrono_literals;
 
 namespace
 {
+
 GstElement *create_element(const gchar *factoryname, const gchar *name)
 {
     auto element = gst_element_factory_make(factoryname, name);
     if (!element) {
-        g_error("Element %s could not be created.", factoryname);
+        spdlog::error("Element {} could not be created.", factoryname);
     }
     return element;
 }
+
+static gchararray generate_filename(GstElement *, guint fragment_id, gpointer udata)
+{
+    auto base_filename = static_cast<std::string *>(udata);
+    auto now = std::chrono::system_clock::now();
+
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_now;
+
+#ifdef _WIN32
+    localtime_s(&tm_now, &time_t_now);  // Windows
+#else
+    localtime_r(&time_t_now, &tm_now);  // Linux/Unix
+#endif
+
+    auto timestamp = fmt::format("{:%Y-%m-%d_%H-%M-%S}", tm_now);
+
+    spdlog::info("timestamp = {}", timestamp);
+
+    auto filename = fmt::format("{}-{}-{}.mkv", *base_filename, fragment_id, timestamp);
+
+    return g_strdup(filename.c_str());
+}
+
 }  // namespace
 
 
@@ -126,7 +152,6 @@ void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
         !gst_element_link_many(tee, queue_display, dec, cf_dec, conv, cf_conv, appsink, nullptr)) {
         spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
-        return;
     }
 }
 
@@ -170,7 +195,6 @@ void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
         !gst_element_link_many(tee, queue_display, dec, conv, cf_conv, appsink, nullptr)) {
         spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
-        return;
     }
 }
 
@@ -305,10 +329,11 @@ void start_jpeg_recording(
     auto parser = create_element("jpegparse", "record_parser");
     auto filesink = create_element("splitmuxsink", "filesink");
 
-    filepath += continuous ? ".mkv" : "-%02d.mkv";
     auto _max_size_time = continuous ? 0 : max_size_time * GST_SECOND * 60;
+    auto path = std::make_unique<std::string>(filepath.generic_string());
 
-    g_object_set(G_OBJECT(filesink), "location", filepath.generic_string().c_str(), nullptr);
+    g_signal_connect(filesink, "format-location", G_CALLBACK(generate_filename), path.release());
+
     g_object_set(
         G_OBJECT(filesink), "max-size-time", _max_size_time, nullptr
     );  // max-size-time=0 -> continuous
@@ -458,7 +483,6 @@ void mock_camera(GstPipeline *pipeline, const std::string &)
         // if (!gst_element_link_many(src, cf_src, parser, dec, conv, cf_conv, appsink, nullptr)) {
         spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
-        return;
     }
 }
 
