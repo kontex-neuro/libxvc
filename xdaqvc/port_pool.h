@@ -6,13 +6,17 @@
 class PortPool
 {
 public:
-    explicit PortPool(unsigned short start, unsigned short end);
-    [[nodiscard]] unsigned short allocate_port();
-    void release_port(unsigned short port);
+    using Port = unsigned short;
+
+    explicit PortPool(Port start, Port end);
+    ~PortPool() = default;
+
+    [[nodiscard]] Port allocate_port();
+    void release_port(Port port);
     void print_available_ports();
 
 private:
-    std::unordered_set<unsigned short> available_ports;
-    unsigned short _start;
-    unsigned short _end;
+    std::unordered_set<Port> _available_ports;
+    Port _start;
+    Port _end;
 };

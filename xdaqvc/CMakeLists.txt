@@ -5,12 +5,14 @@ set(XVC_SOURCES
     camera.cc
     port_pool.cc
     ws_client.cc
+    server.cc
 )
 set(XVC_HEADERS
     xvc.h
     camera.h
     port_pool.h
     ws_client.h
+    server.h
 )
 
 target_sources(libxvc
