@@ -19,6 +19,7 @@ namespace beast = boost::beast;          // from <boost/beast.hpp>
 namespace websocket = beast::websocket;  // from <boost/beast/websocket.hpp>
 namespace net = boost::asio;             // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp;        // from <boost/asio/ip/tcp.hpp>
+using namespace std::chrono_literals;
 
 
 namespace xvc
@@ -36,6 +37,7 @@ class session : public std::enable_shared_from_this<session>
 public:
     // Resolver and socket require an io_context
     explicit session(net::io_context &ioc, std::function<void(std::string)> handler);
+    ~session() = default;
 
     // Start the asynchronous operation
     void run(char const *host, char const *port);
@@ -48,6 +50,8 @@ public:
     void on_read(beast::error_code ec, std::size_t bytes_transferred);
     void close();
     void on_close(beast::error_code ec);
+
+    void reconnect(const std::chrono::milliseconds timeout = 500ms);
 };
 
 class ws_client
@@ -59,7 +63,7 @@ public:
 private:
     std::shared_ptr<session> _session;
     std::unique_ptr<net::io_context> _ioc;
-    std::jthread _runner;
+    std::jthread _thread;
     std::function<void(std::string)> _event_handler;
 };
 

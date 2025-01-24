@@ -2,9 +2,12 @@
 
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <memory>
 
+
 namespace http = beast::http;  // from <boost/beast/http.hpp>
+
 
 namespace
 {
@@ -16,7 +19,7 @@ auto constexpr CLOSE = "close";
 auto constexpr ROUTE = "/ws";
 
 // Report a failure
-void fail(beast::error_code ec, char const *what) { spdlog::info("{} : {}", what, ec.message()); }
+void fail(beast::error_code ec, char const *what) { spdlog::error("{} : {}", what, ec.message()); }
 
 }  // namespace
 
@@ -45,7 +48,7 @@ void session::on_resolve(beast::error_code ec, tcp::resolver::results_type resul
     if (ec) return fail(ec, RESOLVE);
 
     // Set the timeout for the operation
-    beast::get_lowest_layer(_ws).expires_after(std::chrono::seconds(30));
+    beast::get_lowest_layer(_ws).expires_after(std::chrono::seconds(1));
 
     // Make the connection on the IP address we get from a lookup
     beast::get_lowest_layer(_ws).async_connect(
@@ -55,7 +58,11 @@ void session::on_resolve(beast::error_code ec, tcp::resolver::results_type resul
 
 void session::on_connect(beast::error_code ec, tcp::resolver::results_type::endpoint_type ep)
 {
-    if (ec) return fail(ec, CONNECT);
+    if (ec) {
+        fail(ec, CONNECT);
+        reconnect();
+        return;
+    };
 
     // Turn off the timeout on the tcp_stream, because
     // the websocket stream has its own timeout system.
@@ -95,20 +102,15 @@ void session::read()
     _ws.async_read(_buffer, beast::bind_front_handler(&session::on_read, shared_from_this()));
 }
 
-void session::close()
-{
-    // Close the WebSocket connection
-    _ws.async_close(
-        websocket::close_code::normal,
-        beast::bind_front_handler(&session::on_close, shared_from_this())
-    );
-}
-
 void session::on_read(beast::error_code ec, std::size_t bytes_transferred)
 {
     boost::ignore_unused(bytes_transferred);
 
-    if (ec) return fail(ec, READ);
+    if (ec) {
+        fail(ec, READ);
+        reconnect();
+        return;
+    };
 
     // Process the received message
     auto const event = beast::buffers_to_string(_buffer.data());
@@ -116,9 +118,18 @@ void session::on_read(beast::error_code ec, std::size_t bytes_transferred)
 
     // Clear the buffer
     _buffer.clear();
-    // buffer_.consume(buffer_.size());
+    // _buffer.consume(_buffer.size());
 
     read();
+}
+
+void session::close()
+{
+    // Close the WebSocket connection
+    _ws.async_close(
+        websocket::close_code::normal,
+        beast::bind_front_handler(&session::on_close, shared_from_this())
+    );
 }
 
 void session::on_close(beast::error_code ec)
@@ -130,11 +141,28 @@ void session::on_close(beast::error_code ec)
     spdlog::debug("WebSocket closed gracefully");
 }
 
+void session::reconnect(const std::chrono::milliseconds timeout)
+{
+    spdlog::debug("session has been disconnected, trying to reconnect...");
+
+    if (_ws.is_open()) {
+        close();
+    }
+
+    spdlog::debug("next trial will start after {}ms", timeout.count());
+    std::this_thread::sleep_for(timeout);
+
+    auto const host = "192.168.177.100";
+    auto const port = "8000";
+
+    run(host, port);
+}
+
 ws_client::ws_client(std::function<void(std::string)> handler) : _event_handler(std::move(handler))
 {
     _ioc = std::make_unique<net::io_context>();
 
-    _runner = std::jthread([this, host = "192.168.177.100", port = "8000"]() {
+    _thread = std::jthread([this, host = "192.168.177.100", port = "8000"]() {
         try {
             // Launch the asynchronous operation
             _session = std::make_shared<session>(*_ioc, [this](const std::string &event) {
@@ -146,6 +174,8 @@ ws_client::ws_client(std::function<void(std::string)> handler) : _event_handler(
             // Run the I/O service. The call will return when
             // the socket is closed.
             _ioc->run();
+
+            spdlog::debug("WebSocket closed");
         } catch (const std::exception &e) {
             spdlog::error("WebSocket thread error: {}", e.what());
         }
@@ -154,8 +184,8 @@ ws_client::ws_client(std::function<void(std::string)> handler) : _event_handler(
 
 ws_client::~ws_client()
 {
-    _session->close();
-    _ioc->stop();
+    // _ioc->stop();
+    // _session->close();
 }
 
 }  // namespace xvc
