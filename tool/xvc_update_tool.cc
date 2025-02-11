@@ -1,22 +1,22 @@
 #include <spdlog/spdlog.h>
-#include <xdaqvc/xvc.h>
 
 #include <boost/program_options.hpp>
-#include <filesystem>
 #include <iostream>
+
+#include "updater.h"
 
 
 namespace po = boost::program_options;
-namespace fs = std::filesystem;
+
 
 int main(int argc, char *argv[])
 {
     std::string server_address;
-    int server_port;
-    int update_server_port;
+    auto server_port = 0;
+    auto update_server_port = 0;
     std::string version_table_url;
     std::string update_dir;
-    bool skip_version_check = false;
+    auto skip_version_check = false;
     std::string target_version;
 
     // Setup command line options
@@ -58,7 +58,7 @@ int main(int argc, char *argv[])
 
         // Handle calculate-hash option
         if (vm.count("calculate-hash")) {
-            std::string file_path = vm["calculate-hash"].as<std::string>();
+            auto file_path = vm["calculate-hash"].as<std::string>();
             auto hash = xvc::calculate_sha256(file_path);
             if (hash) {
                 return 0;

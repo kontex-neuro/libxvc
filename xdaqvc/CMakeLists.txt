@@ -6,6 +6,7 @@ set(XVC_SOURCES
     port_pool.cc
     ws_client.cc
     server.cc
+    updater.cc
 )
 set(XVC_HEADERS
     xvc.h
@@ -13,6 +14,7 @@ set(XVC_HEADERS
     port_pool.h
     ws_client.h
     server.h
+    updater.h
 )
 
 target_sources(libxvc
@@ -37,8 +39,10 @@ set_target_properties(libxvc PROPERTIES
 target_compile_features(libxvc PUBLIC cxx_std_20)
 target_compile_options(libxvc
     PRIVATE
-        $<$<CXX_COMPILER_ID:MSVC>:/W4 /wd4702>
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        # $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+        # $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
 )
 target_link_libraries(libxvc 
     PUBLIC

@@ -10,12 +10,8 @@ class libxvc(ConanFile):
     license = ""
     url = "https://github.com/kontex-neuro/libxvc.git"
     description = "XDAQ Video Capture library"
-    options = {
-        "build_testing": [True, False]
-    }
-    default_options = {
-        "build_testing": False
-    }
+    options = {"build_testing": [True, False]}
+    default_options = {"build_testing": False}
 
     def build_requirements(self):
         self.tool_requires("cmake/[>=3.25.0 <3.30.0]")
@@ -84,7 +80,6 @@ class libxvc(ConanFile):
         deps.generate()
         tc = CMakeToolchain(self)
         tc.generator = "Ninja"
-        tc.variables["BUILD_TESTING"] = self.options.build_testing
         tc.generate()
 
     def build(self):

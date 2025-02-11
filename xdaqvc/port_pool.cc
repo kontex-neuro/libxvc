@@ -3,10 +3,8 @@
 #include <spdlog/spdlog.h>
 
 
-PortPool::PortPool(Port start, Port end)
+PortPool::PortPool(Port start, Port end) : _start(start), _end(end)
 {
-    _start = start;
-    _end = end;
     for (auto port = start; port < end; ++port) {
         _available_ports.insert(port);
     }
@@ -15,6 +13,7 @@ PortPool::PortPool(Port start, Port end)
 PortPool::Port PortPool::allocate_port()
 {
     if (_available_ports.empty()) {
+        spdlog::error("No available ports");
         throw std::runtime_error("No available ports");
     }
     auto port = *_available_ports.begin();

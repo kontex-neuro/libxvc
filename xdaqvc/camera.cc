@@ -1,11 +1,11 @@
 #include "camera.h"
 
 #include <cpr/api.h>
+#include <spdlog/spdlog.h>
 
 #include <nlohmann/json.hpp>
 
 #include "port_pool.h"
-#include "spdlog/spdlog.h"
 
 
 using nlohmann::json;
@@ -72,7 +72,7 @@ void Camera::start(const std::chrono::milliseconds timeout)
     if (response.status_code == OK) {
         spdlog::info("Successfully start camera");
     } else {
-        spdlog::error("Failed to start camera");
+        spdlog::info("Failed to start camera");
     }
 }
 
@@ -90,6 +90,6 @@ void Camera::stop(const std::chrono::milliseconds timeout)
     if (response.status_code == OK) {
         spdlog::info("Successfully stop camera");
     } else {
-        spdlog::error("Failed to stop camera");
+        spdlog::info("Failed to stop camera");
     }
 }

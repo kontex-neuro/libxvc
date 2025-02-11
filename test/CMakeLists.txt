@@ -1,27 +1,28 @@
-project(xvc_tests)
+add_executable(xvc_updater_tests)
 
-add_executable(xvc_updater_tests
-    updater_test_base.h
-    updater_test.cc
+target_sources(xvc_updater_tests
+    PRIVATE
+        updater_test_base.h
+        updater_test.cc
 )
-
 target_link_libraries(xvc_updater_tests
     PRIVATE
-        libxvc          # This already includes most dependencies
-        GTest::gtest
-        GTest::gtest_main
+        libxvc
+        gtest::gtest
 )
-
 target_include_directories(xvc_updater_tests
-    PRIVATE
-        ${CMAKE_SOURCE_DIR}
+    INTERFACE
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
+        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
 
-add_test(NAME xvc_updater_tests COMMAND xvc_updater_tests)
-
+add_test(
+    NAME xvc_updater_tests 
+    COMMAND xvc_updater_tests
+)
 target_compile_features(xvc_updater_tests PRIVATE cxx_std_20)
-
-# Optional: Add compiler warnings
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(xvc_updater_tests PRIVATE -Wall -Wextra -Wpedantic)
-endif() 
+target_compile_options(xvc_updater_tests
+    PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+)

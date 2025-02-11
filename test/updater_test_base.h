@@ -2,11 +2,14 @@
 
 #include <fmt/format.h>
 #include <gtest/gtest.h>
-#include <xdaqvc/xvc.h>
 
-#include <chrono>
 #include <filesystem>
 #include <fstream>
+
+#include "updater.h"
+
+
+namespace fs = std::filesystem;
 
 
 class XVCUpdaterTest : public testing::Test
@@ -25,9 +28,9 @@ protected:
 
     void TearDown() override
     {
-        std::filesystem::remove_all(update_dir);
-        if (std::filesystem::exists(test_file)) {
-            std::filesystem::remove(test_file);
+        fs::remove_all(update_dir);
+        if (fs::exists(test_file)) {
+            fs::remove(test_file);
         }
     }
 
@@ -36,13 +39,14 @@ protected:
         std::ifstream file(filepath);
         if (!file.is_open()) {
             ADD_FAILURE() << "Could not open file: " << filepath;
-            return "";
+            return std::string("");
         }
         return std::string(
             (std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>()
         );
     }
 
+public:
     std::string server_address;
     int server_port;
     int update_server_port;

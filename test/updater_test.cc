@@ -1,24 +1,26 @@
 #include "updater_test_base.h"
 
+
 using namespace std::chrono_literals;
+
 
 TEST_F(XVCUpdaterTest, CalculateSHA256)
 {
     // Create a test file with known content
-    std::string test_content = "Hello, World!";
-    std::ofstream test_file("test.txt");
-    test_file << test_content;
-    test_file.close();
+    auto test_content = "Hello, World!";
+    std::ofstream _test_file("test.txt");
+    _test_file << test_content;
+    _test_file.close();
 
     auto hash = xvc::calculate_sha256("test.txt");
     ASSERT_TRUE(hash.has_value());
     EXPECT_FALSE(hash->empty());
 
     // Known SHA256 hash for "Hello, World!"
-    std::string expected_hash = "dffd6021bb2bd5b0af676290809ec3a53191dd81c7f70a4b28688a362182986f";
+    auto expected_hash = "dffd6021bb2bd5b0af676290809ec3a53191dd81c7f70a4b28688a362182986f";
     EXPECT_EQ(*hash, expected_hash);
 
-    std::filesystem::remove("test.txt");
+    fs::remove("test.txt");
 }
 
 TEST_F(XVCUpdaterTest, DownloadAndVerify)
@@ -29,15 +31,14 @@ TEST_F(XVCUpdaterTest, DownloadAndVerify)
     ASSERT_FALSE(version_table->versions.empty());
 
     const auto &test_version = version_table->versions.back();
-    std::string download_url =
-        fmt::format("https://xvc001.sgp1.cdn.digitaloceanspaces.com/{}", test_file);
+    auto download_url = fmt::format("https://xvc001.sgp1.cdn.digitaloceanspaces.com/{}", test_file);
 
     auto result = xvc::download_and_verify(download_url, test_version.hash, test_file);
     ASSERT_TRUE(result.success) << "Download failed: " << result.error_message;
 
     // Verify file exists and has content
-    ASSERT_TRUE(std::filesystem::exists(test_file));
-    ASSERT_GT(std::filesystem::file_size(test_file), 0);
+    ASSERT_TRUE(fs::exists(test_file));
+    ASSERT_GT(fs::file_size(test_file), 0);
 }
 
 TEST_F(XVCUpdaterTest, DownloadAndVerifyInvalidHash)
@@ -49,7 +50,7 @@ TEST_F(XVCUpdaterTest, DownloadAndVerifyInvalidHash)
     );
     EXPECT_FALSE(result.success);
     EXPECT_FALSE(result.error_message.empty());
-    EXPECT_FALSE(std::filesystem::exists(test_file));
+    EXPECT_FALSE(fs::exists(test_file));
 }
 
 TEST_F(XVCUpdaterTest, HandshakeTest)
@@ -69,8 +70,7 @@ TEST_F(XVCUpdaterTest, FileTransferWorkflow)
     ASSERT_FALSE(version_table->versions.empty());
 
     const auto &test_version = version_table->versions.back();
-    std::string download_url =
-        fmt::format("https://xvc001.sgp1.cdn.digitaloceanspaces.com/{}", test_file);
+    auto download_url = fmt::format("https://xvc001.sgp1.cdn.digitaloceanspaces.com/{}", test_file);
 
     auto download_result = xvc::download_and_verify(download_url, test_version.hash, test_file);
     ASSERT_TRUE(download_result.success);
@@ -81,7 +81,7 @@ TEST_F(XVCUpdaterTest, FileTransferWorkflow)
 
     // Prepare transfer
     std::string transfer_id;
-    auto file_size = std::filesystem::file_size(test_file);
+    auto file_size = fs::file_size(test_file);
     bool prepared = xvc::prepare_file_transfer(
         server_address,
         update_server_port,
@@ -142,11 +142,11 @@ TEST_F(XVCUpdaterTest, CompleteUpdateWorkflow)
         EXPECT_GT(result.available_version, result.current_version);
 
         // Verify update file was downloaded
-        std::string expected_filename =
+        auto expected_filename =
             fmt::format("xvc-server-{}.tar.xz", result.available_version.to_string());
-        auto update_path = std::filesystem::path(update_dir) / expected_filename;
+        auto update_path = fs::path(update_dir) / expected_filename;
 
-        EXPECT_TRUE(std::filesystem::exists(update_path));
-        EXPECT_GT(std::filesystem::file_size(update_path), 0);
+        EXPECT_TRUE(fs::exists(update_path));
+        EXPECT_GT(fs::file_size(update_path), 0);
     }
 }

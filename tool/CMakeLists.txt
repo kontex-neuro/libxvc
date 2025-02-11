@@ -16,25 +16,17 @@ target_compile_options(xvc_tool
         # $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
 )
 
-
-
-# Add the new update tool
 add_executable(xvc_update_tool xvc_update_tool.cc)
 target_link_libraries(xvc_update_tool
-PRIVATE
-Boost::program_options
-fmt::fmt
-spdlog::spdlog
-libxvc
+    PRIVATE
+        Boost::program_options
+        fmt::fmt
+        spdlog::spdlog
+        libxvc
 )
 target_compile_features(xvc_update_tool PRIVATE cxx_std_20)
 target_compile_options(xvc_update_tool
-PRIVATE
-$<$<CXX_COMPILER_ID:MSVC>:/W4>
-$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
-)
-# Include directories
-target_include_directories(xvc_update_tool
     PRIVATE
-        ${CMAKE_SOURCE_DIR}
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
 )
