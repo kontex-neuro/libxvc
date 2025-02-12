@@ -65,7 +65,7 @@ void Camera::start(const std::chrono::milliseconds duration)
 
     auto response = cpr::Post(
         url,
-        cpr::Header({"Content-Type", "application/json"}),
+        cpr::Header{{"Content-Type", "application/json"}},
         cpr::Body(payload.dump(2)),
         cpr::Timeout(duration)
     );
@@ -83,7 +83,7 @@ void Camera::stop(const std::chrono::milliseconds duration)
 
     auto response = cpr::Post(
         cpr::Url(Stop),
-        cpr::Header({"Content-Type", "application/json"}),
+        cpr::Header{{"Content-Type", "application/json"}},
         cpr::Body(payload.dump(2)),
         cpr::Timeout(duration)
     );
