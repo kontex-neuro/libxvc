@@ -384,100 +384,6 @@ void stop_jpeg_recording(GstPipeline *pipeline)
 {
     spdlog::info("Stop GStreamer M-JPEG recording");
 
-    // // Get the tee element and the recording branch pad.
-    // GstElement *tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
-    // if (!tee) {
-    //     spdlog::error("Tee element not found in pipeline");
-    //     return;
-    // }
-    // GstPad *src_pad = gst_element_get_static_pad(tee, "src_1");
-    // if (!src_pad) {
-    //     spdlog::error("No src pad 'src_1' found on tee");
-    //     gst_object_unref(tee);
-    //     return;
-    // }
-
-    // // Retrieve the recording branch elements.
-    // GstElement *queue_record = gst_bin_get_by_name(GST_BIN(pipeline), "queue_record");
-    // GstElement *parser = gst_bin_get_by_name(GST_BIN(pipeline), "record_parser");
-    // GstElement *filesink = gst_bin_get_by_name(GST_BIN(pipeline), "filesink");
-    // if (!queue_record || !parser || !filesink) {
-    //     spdlog::error("Recording branch elements missing");
-    //     gst_object_unref(src_pad);
-    //     gst_object_unref(tee);
-    //     return;
-    // }
-
-    // // Send EOS event on the recording branch sink pad.
-    // GstPad *sink_pad = gst_element_get_static_pad(queue_record, "sink");
-    // if (sink_pad) {
-    //     spdlog::info("Sending EOS event to recording branch");
-    //     gst_pad_send_event(sink_pad, gst_event_new_eos());
-    //     gst_object_unref(sink_pad);
-    // } else {
-    //     spdlog::error("Sink pad on queue_record not found");
-    // }
-
-    // // Immediately release the tee's request pad so that the rendering branch is not blocked.
-    // gst_pad_add_probe(
-    //     src_pad,
-    //     GST_PAD_PROBE_TYPE_IDLE,
-    //     [](GstPad *src_pad, GstPadProbeInfo *, gpointer user_data) -> GstPadProbeReturn {
-    //         GstElement *tee = gst_bin_get_by_name(GST_BIN((GstPipeline *) user_data), "t");
-    //         spdlog::info("Releasing tee's src pad to unblock rendering branch");
-    //         gst_element_release_request_pad(tee, src_pad);
-    //         gst_object_unref(src_pad);
-    //         gst_object_unref(tee);
-    //         return GST_PAD_PROBE_REMOVE;
-    //     },
-    //     pipeline,
-    //     nullptr
-    // );
-
-    // // Structure to pass recording branch elements for delayed cleanup.
-    // struct CleanupData {
-    //     GstPipeline *pipeline;
-    //     GstElement *queue;
-    //     GstElement *parser;
-    //     GstElement *filesink;
-    // };
-
-    // CleanupData *cleanup_data = new CleanupData;
-    // cleanup_data->pipeline = pipeline;
-    // cleanup_data->queue = queue_record;  // holds a reference from gst_bin_get_by_name
-    // cleanup_data->parser = parser;
-    // cleanup_data->filesink = filesink;
-
-    // // Schedule delayed cleanup (after ~3500ms) so that EOS has time to propagate.
-    // g_timeout_add(
-    //     3500,
-    //     [](gpointer data) -> gboolean {
-    //         CleanupData *cleanup = static_cast<CleanupData *>(data);
-    //         spdlog::info("Performing delayed cleanup of JPEG recording branch");
-    //         // Remove the branch elements from the pipeline.
-    //         gst_bin_remove(GST_BIN(cleanup->pipeline), cleanup->queue);
-    //         gst_bin_remove(GST_BIN(cleanup->pipeline), cleanup->parser);
-    //         gst_bin_remove(GST_BIN(cleanup->pipeline), cleanup->filesink);
-
-    //         // Set the states of the branch elements to NULL.
-    //         gst_element_set_state(cleanup->queue, GST_STATE_NULL);
-    //         gst_element_set_state(cleanup->parser, GST_STATE_NULL);
-    //         gst_element_set_state(cleanup->filesink, GST_STATE_NULL);
-
-    //         // Unref the elements.
-    //         gst_object_unref(cleanup->queue);
-    //         gst_object_unref(cleanup->parser);
-    //         gst_object_unref(cleanup->filesink);
-    //         delete cleanup;
-    //         return FALSE;  // One-time callback.
-    //     },
-    //     cleanup_data
-    // );
-
-    // // Unref our local references.
-    // gst_object_unref(src_pad);
-    // gst_object_unref(tee);
-
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     auto src_pad = gst_element_get_static_pad(tee, "src_1");
     gst_pad_add_probe(
@@ -502,15 +408,19 @@ void stop_jpeg_recording(GstPipeline *pipeline)
             );
             gst_pad_send_event(sink_pad.get(), gst_event_new_eos());
 
-            gst_pad_unlink(src_pad, sink_pad.get());
+            std::thread([pipeline = std::move(pipeline),
+                         queue_record = std::move(queue_record),
+                         parser = std::move(parser),
+                         filesink = std::move(filesink)]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+                gst_bin_remove(GST_BIN(pipeline), queue_record.get());
+                gst_bin_remove(GST_BIN(pipeline), parser.get());
+                gst_bin_remove(GST_BIN(pipeline), filesink.get());
 
-            gst_bin_remove(GST_BIN(pipeline), queue_record.get());
-            gst_bin_remove(GST_BIN(pipeline), parser.get());
-            gst_bin_remove(GST_BIN(pipeline), filesink.get());
-
-            gst_element_set_state(queue_record.get(), GST_STATE_NULL);
-            gst_element_set_state(parser.get(), GST_STATE_NULL);
-            gst_element_set_state(filesink.get(), GST_STATE_NULL);
+                gst_element_set_state(queue_record.get(), GST_STATE_NULL);
+                gst_element_set_state(parser.get(), GST_STATE_NULL);
+                gst_element_set_state(filesink.get(), GST_STATE_NULL);
+            }).detach();
 
             gst_element_release_request_pad(tee, src_pad);
             gst_object_unref(src_pad);
