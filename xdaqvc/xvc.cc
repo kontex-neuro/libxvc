@@ -248,7 +248,11 @@ void start_h265_recording(
         G_OBJECT(filesink), "max-size-bytes", 0, nullptr
     );  // Set max-size-bytes to 0 in order to make send-keyframe-requests work.
     g_object_set(G_OBJECT(filesink), "send-keyframe-requests", true, nullptr);
-    g_object_set(G_OBJECT(filesink), "muxer-factory", "matroskamux", nullptr);
+    g_object_set(G_OBJECT(filesink), "async-finalize", true, nullptr);
+    g_object_set(
+        G_OBJECT(filesink), "muxer-factory", "matroskamux", nullptr
+    );  // Valid only for async-finalize = TRUE
+
 
     gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, cf_parser, filesink, nullptr);
 
@@ -353,7 +357,10 @@ void start_jpeg_recording(
         G_OBJECT(filesink), "max-size-time", _max_size_time, nullptr
     );  // max-size-time=0 -> continuous
     g_object_set(G_OBJECT(filesink), "max-files", max_files, nullptr);
-    g_object_set(G_OBJECT(filesink), "muxer-factory", "matroskamux", nullptr);
+    g_object_set(G_OBJECT(filesink), "async-finalize", true, nullptr);
+    g_object_set(
+        G_OBJECT(filesink), "muxer-factory", "matroskamux", nullptr
+    );  // Valid only for async-finalize = TRUE
 
     gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
 

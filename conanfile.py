@@ -80,6 +80,7 @@ class libxvc(ConanFile):
         deps.generate()
         tc = CMakeToolchain(self)
         tc.generator = "Ninja"
+        tc.variables["BUILD_TESTING"] = self.options.build_testing
         tc.generate()
 
     def build(self):

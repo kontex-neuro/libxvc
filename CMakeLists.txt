@@ -12,8 +12,6 @@ project(libxvc
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(BUILD_TESTING "Build updater tests" ON)
-
 set(Boost_USE_STATIC_LIBS ON)
 find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)

@@ -34,18 +34,18 @@ Camera::Camera(const int id, const std::string &name)
 
 Camera::~Camera() { pool.release_port(_port); }
 
-std::string Camera::cameras(const std::chrono::milliseconds timeout)
+std::string Camera::cameras(const std::chrono::milliseconds duration)
 {
     auto cameras = std::string("");
 
-    auto response = cpr::Get(cpr::Url{Cameras}, cpr::Timeout{timeout});
+    auto response = cpr::Get(cpr::Url(Cameras), cpr::Timeout(duration));
     if (response.status_code == OK) {
         cameras = json::parse(response.text).dump(2);
     }
     return cameras;
 }
 
-void Camera::start(const std::chrono::milliseconds timeout)
+void Camera::start(const std::chrono::milliseconds duration)
 {
     json payload;
     payload["id"] = _id;
@@ -54,20 +54,20 @@ void Camera::start(const std::chrono::milliseconds timeout)
     cpr::Url url;
 
     if (_id <= -1 && _id >= -10) {
-        url = cpr::Url{test};
+        url = cpr::Url(test);
     } else if (_current_cap.find(VIDEO_MJPEG) != std::string::npos ||
                _current_cap.find(VIDEO_RAW) != std::string::npos) {
-        url = cpr::Url{jpeg};
+        url = cpr::Url(jpeg);
     } else {
         // TODO: disable h265 for now
-        url = cpr::Url{H265};
+        url = cpr::Url(H265);
     }
 
     auto response = cpr::Post(
         url,
-        cpr::Header{{"Content-Type", "application/json"}},
-        cpr::Body{payload.dump(2)},
-        cpr::Timeout{timeout}
+        cpr::Header({"Content-Type", "application/json"}),
+        cpr::Body(payload.dump(2)),
+        cpr::Timeout(duration)
     );
     if (response.status_code == OK) {
         spdlog::info("Successfully start camera");
@@ -76,16 +76,16 @@ void Camera::start(const std::chrono::milliseconds timeout)
     }
 }
 
-void Camera::stop(const std::chrono::milliseconds timeout)
+void Camera::stop(const std::chrono::milliseconds duration)
 {
     json payload;
     payload["id"] = _id;
 
     auto response = cpr::Post(
-        cpr::Url{Stop},
-        cpr::Header{{"Content-Type", "application/json"}},
-        cpr::Body{payload.dump(2)},
-        cpr::Timeout{timeout}
+        cpr::Url(Stop),
+        cpr::Header({"Content-Type", "application/json"}),
+        cpr::Body(payload.dump(2)),
+        cpr::Timeout(duration)
     );
     if (response.status_code == OK) {
         spdlog::info("Successfully stop camera");

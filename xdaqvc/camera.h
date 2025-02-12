@@ -23,7 +23,7 @@ public:
     Camera(const int id, const std::string &name);
     ~Camera();
 
-    [[nodiscard]] static std::string cameras(const std::chrono::milliseconds timeout = 1s);
+    [[nodiscard]] static std::string cameras(const std::chrono::milliseconds duration = 500ms);
     [[nodiscard]] std::string name() const { return _name; };
     [[nodiscard]] std::vector<Cap> caps() const { return _caps; };
     [[nodiscard]] unsigned short port() const { return _port; };
@@ -33,8 +33,8 @@ public:
     void set_current_cap(const std::string &cap) { _current_cap = cap; }
     void add_cap(const Cap &cap) { _caps.emplace_back(cap); }
 
-    void start(const std::chrono::milliseconds timeout = 1s);
-    void stop(const std::chrono::milliseconds timeout = 1s);
+    void start(const std::chrono::milliseconds duration = 500ms);
+    void stop(const std::chrono::milliseconds duration = 500ms);
 
 private:
     int _id;

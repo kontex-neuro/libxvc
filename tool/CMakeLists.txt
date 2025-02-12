@@ -2,9 +2,6 @@ add_executable(xvc_tool xvc_tool.cc)
 target_link_libraries(xvc_tool 
     PRIVATE
         Boost::program_options
-        fmt::fmt
-        spdlog::spdlog
-        PkgConfig::gstreamer
         libxvc
 )
 target_compile_features(xvc_tool PRIVATE cxx_std_20)
@@ -20,8 +17,6 @@ add_executable(xvc_update_tool xvc_update_tool.cc)
 target_link_libraries(xvc_update_tool
     PRIVATE
         Boost::program_options
-        fmt::fmt
-        spdlog::spdlog
         libxvc
 )
 target_compile_features(xvc_update_tool PRIVATE cxx_std_20)
