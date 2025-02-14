@@ -75,6 +75,9 @@ gchararray generate_filename(
 
     if (tracker->file_paths.size() > static_cast<size_t>(tracker->max_files)) {
         fs::remove(tracker->file_paths.front());
+        auto binFile = tracker->file_paths.front();
+        binFile.replace_extension(".bin");
+        fs::remove(binFile);
         tracker->file_paths.erase(tracker->file_paths.begin());
     }
 
