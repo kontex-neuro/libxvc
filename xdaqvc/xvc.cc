@@ -75,6 +75,9 @@ gchararray generate_filename(
 
     if (tracker->file_paths.size() > static_cast<size_t>(tracker->max_files)) {
         fs::remove(tracker->file_paths.front());
+        auto binFile = tracker->file_paths.front();
+        binFile.replace_extension(".bin");
+        fs::remove(binFile);
         tracker->file_paths.erase(tracker->file_paths.begin());
     }
 
@@ -393,6 +396,10 @@ void stop_jpeg_recording(GstPipeline *pipeline)
 
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     auto src_pad = gst_element_get_static_pad(tee, "src_1");
+
+    // Increase the reference count so that 'pipeline' remains valid.
+    gst_object_ref(pipeline);
+
     gst_pad_add_probe(
         src_pad,
         GST_PAD_PROBE_TYPE_IDLE,
@@ -415,7 +422,8 @@ void stop_jpeg_recording(GstPipeline *pipeline)
             );
             gst_pad_send_event(sink_pad.get(), gst_event_new_eos());
 
-            std::thread([pipeline = std::move(pipeline),
+            // Launch a detached thread to remove the elements after a delay.
+            std::thread([pipeline,  // captured pipeline (ref'ed)
                          queue_record = std::move(queue_record),
                          parser = std::move(parser),
                          filesink = std::move(filesink)]() {
@@ -427,6 +435,9 @@ void stop_jpeg_recording(GstPipeline *pipeline)
                 gst_element_set_state(queue_record.get(), GST_STATE_NULL);
                 gst_element_set_state(parser.get(), GST_STATE_NULL);
                 gst_element_set_state(filesink.get(), GST_STATE_NULL);
+
+                // Release the extra reference on the pipeline.
+                gst_object_unref(pipeline);
             }).detach();
 
             gst_element_release_request_pad(tee, src_pad);
