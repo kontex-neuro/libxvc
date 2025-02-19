@@ -7,9 +7,9 @@ class libxvc(ConanFile):
     version = "0.0.3"
     settings = "os", "compiler", "build_type", "arch"
     generators = "VirtualRunEnv"
-    license = ""
+    license = "LGPL-3.0-or-later"
     url = "https://github.com/kontex-neuro/libxvc.git"
-    description = "XDAQ Video Capture library"
+    description = "Thor Vision Video Capture library"
     options = {"build_testing": [True, False]}
     default_options = {"build_testing": False}
 

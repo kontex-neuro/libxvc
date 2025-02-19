@@ -5,7 +5,7 @@ set(libxvc_VERSION 0.0.3)
 project(libxvc
     LANGUAGES CXX
     VERSION "${libxvc_VERSION}"
-    DESCRIPTION "XDAQ Video Capture Library"
+    DESCRIPTION "Thor Vision Video Capture Library"
     HOMEPAGE_URL "https://kontex.io/" 
 )
 
