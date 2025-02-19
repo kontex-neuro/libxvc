@@ -1,5 +1,7 @@
 #pragma once
 
+#define LIBXVC_API_VER "0.0.3"
+
 #include <gst/gstpipeline.h>
 
 #include <filesystem>
@@ -7,6 +9,7 @@
 
 
 namespace fs = std::filesystem;
+
 
 namespace xvc
 {
