@@ -238,8 +238,10 @@ HandshakeResponse perform_handshake(const std::string &server_address, int port)
                     auto now_ts = std::chrono::system_clock::to_time_t(now);
 
                     // Get expiration time from server (as UTC timestamp)
-                    int64_t expire_timestamp = json_response["expires"].get<int64_t>();
+                    auto expire_timestamp = json_response["expires"].get<int64_t>();
                     response.expires = std::chrono::system_clock::from_time_t(expire_timestamp);
+
+                    auto expire_time_t = static_cast<time_t>(expire_timestamp);
 
                     // Format times in UTC
                     std::tm now_tm_utc{}, expire_tm_utc{};
@@ -248,7 +250,7 @@ HandshakeResponse perform_handshake(const std::string &server_address, int port)
                     gmtime_s(&expire_tm_utc, &expire_timestamp);
 #else
                     gmtime_r(&now_ts, &now_tm_utc);
-                    gmtime_r(&expire_timestamp, &expire_tm_utc);
+                    gmtime_r(&expire_time_t, &expire_tm_utc);
 #endif
                     char now_str[32], expire_str[32];
                     std::strftime(now_str, sizeof(now_str), "%Y-%m-%d %H:%M:%S UTC", &now_tm_utc);

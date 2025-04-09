@@ -6,8 +6,12 @@ project(libxvc
     LANGUAGES CXX
     VERSION "${libxvc_VERSION}"
     DESCRIPTION "Thor Vision Video Capture Library"
-    HOMEPAGE_URL "https://kontex.io/" 
+    HOMEPAGE_URL "https://www.kontex.io/" 
 )
+
+if(APPLE)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fexperimental-library>)
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -22,6 +26,12 @@ find_package(Boost 1.81.0 REQUIRED COMPONENTS program_options)
 find_package(PkgConfig REQUIRED)
 pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
 find_package(OpenSSL REQUIRED)
+if(OPENSSL_FOUND)
+    include_directories(${OPENSSL_INCLUDE_DIR})
+    link_directories(${OPENSSL_LIBRARIES})
+else()
+    message(FATAL_ERROR "OpenSSL not found!")
+endif()
 
 add_subdirectory(xdaqvc)
 add_subdirectory(tool)
