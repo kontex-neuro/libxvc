@@ -1,0 +1,34 @@
+name: Test server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reboot:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Reboot
+        run: ./reboot-remote.sh
+
+  verify:
+    runs-on: self-hosted
+    needs: reboot
+    steps:
+      - name: Test thor vision server is on
+        run: |
+          echo "Waiting for server to be reachable..."
+
+          for i in {1..10}; do
+            if curl -sSf http://192.168.177.100:8000 > /dev/null; then
+              echo "Server is on!"
+              exit 0
+            fi
+            echo "Still waiting... ($i)"
+            sleep 10
+          done
+
+          echo "Server did NOT come back online in time."
+          exit 1
