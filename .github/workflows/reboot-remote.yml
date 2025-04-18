@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  reboot:
+  reboot-remote:
     runs-on: self-hosted
     steps:
       - name: Checkout repository
