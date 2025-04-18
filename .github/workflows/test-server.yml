@@ -1,4 +1,4 @@
-name: Test server
+name: Test server on reboot
 
 on:
   workflow_dispatch:
@@ -10,7 +10,5 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Reboot
-        run: |
-          env
-          # ./reboot-remote.sh
+      - name: Test server on reboot
+        run: $HOME/reboot-remote.sh
