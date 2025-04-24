@@ -291,6 +291,10 @@ void stop_h265_recording(GstPipeline *pipeline)
 
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     auto src_pad = gst_element_get_static_pad(tee, "src_1");
+    
+    // Increase the reference count so that 'pipeline' remains valid.
+    gst_object_ref(pipeline);
+
     gst_pad_add_probe(
         src_pad,
         GST_PAD_PROBE_TYPE_IDLE,
@@ -317,15 +321,26 @@ void stop_h265_recording(GstPipeline *pipeline)
             gst_pad_unlink(src_pad, sink_pad.get());
             gst_pad_send_event(sink_pad.get(), gst_event_new_eos());
 
-            gst_bin_remove(GST_BIN(pipeline), queue_record.get());
-            gst_bin_remove(GST_BIN(pipeline), parser.get());
-            gst_bin_remove(GST_BIN(pipeline), cf_parser.get());
-            gst_bin_remove(GST_BIN(pipeline), filesink.get());
+            // Launch a detached thread to remove the elements after a delay.
+            std::thread([pipeline,  // captured pipeline (ref'ed)
+                         queue_record = std::move(queue_record),
+                         parser = std::move(parser),
+                         cf_parser = std::move(cf_parser),
+                         filesink = std::move(filesink)]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+                gst_bin_remove(GST_BIN(pipeline), queue_record.get());
+                gst_bin_remove(GST_BIN(pipeline), parser.get());
+                gst_bin_remove(GST_BIN(pipeline), cf_parser.get());
+                gst_bin_remove(GST_BIN(pipeline), filesink.get());
 
-            gst_element_set_state(queue_record.get(), GST_STATE_NULL);
-            gst_element_set_state(cf_parser.get(), GST_STATE_NULL);
-            gst_element_set_state(parser.get(), GST_STATE_NULL);
-            gst_element_set_state(filesink.get(), GST_STATE_NULL);
+                gst_element_set_state(queue_record.get(), GST_STATE_NULL);
+                gst_element_set_state(parser.get(), GST_STATE_NULL);
+                gst_element_set_state(cf_parser.get(), GST_STATE_NULL);
+                gst_element_set_state(filesink.get(), GST_STATE_NULL);
+
+                // Release the extra reference on the pipeline.
+                gst_object_unref(pipeline);
+            }).detach();
 
             gst_element_release_request_pad(tee, src_pad);
             gst_object_unref(src_pad);
