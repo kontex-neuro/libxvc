@@ -28,6 +28,7 @@ class libxvc(ConanFile):
         self.requires("cpr/1.10.5")
         self.requires("xdaqmetadata/0.0.1")
         self.requires("openssl/3.4.1")
+        self.requires("cli11/2.5.0")
 
     def configure(self):
         # Enable required Boost modules

@@ -1,82 +1,63 @@
 #include <spdlog/spdlog.h>
 
-#include <boost/program_options.hpp>
-#include <iostream>
+#include <CLI/CLI.hpp>
+#include <cstdlib>
 
 #include "updater.h"
 
-
-namespace po = boost::program_options;
-
-
 int main(int argc, char *argv[])
 {
-    std::string server_address;
-    auto server_port = 0;
-    auto update_server_port = 0;
-    std::string version_table_url;
-    std::string update_dir;
+    // TODO: Make this updater CLI part of tvcli
+    std::string server_address = "192.168.177.100";
+    auto server_port = 8000;
+    auto update_server_port = 8001;
+    std::string version_table_url = "https://xvc001.sgp1.digitaloceanspaces.com/versions.json";
+    std::string update_dir = "updates";
     auto skip_version_check = false;
     std::string target_version;
+    std::string calculate_hash_file;
+    bool get_server_version = false;
 
-    // Setup command line options
-    po::options_description desc("Allowed options");
-    desc.add_options()
-        ("help,h", "Show help message")
-        ("server,s", po::value<std::string>(&server_address)->default_value("192.168.177.100"), 
-         "Server address (IP or hostname)")
-        ("port,p", po::value<int>(&server_port)->default_value(8000), 
-         "Server port to be updated")
-        ("update-port,u", po::value<int>(&update_server_port)->default_value(8001), 
-         "Update server port")
-        ("version-table,t", 
-         po::value<std::string>(&version_table_url)
-         ->default_value("https://xvc001.sgp1.digitaloceanspaces.com/versions.json"),
-         "Version table URL")
-        ("update-dir,d", po::value<std::string>(&update_dir)->default_value("updates"),
-         "Directory for downloaded updates")
-        ("force,f", po::bool_switch(&skip_version_check),
-         "Skip version check")
-        ("version,v", po::value<std::string>(&target_version),
-         "Target version to update to (optional)")
-        ("calculate-hash,c", po::value<std::string>(),
-         "Calculate SHA256 hash for the specified file")
-        ("get-server-version,g", po::bool_switch(),
-         "Get and display the server version")
-    ;
+    CLI::App app{"Thor Vision Server Updater"};
+    app.add_option("-s,--server", server_address, "Server address (IP or hostname)")
+        ->default_val(server_address);
+    app.add_option("-p,--port", server_port, "Server port to be updated")->default_val(server_port);
+    app.add_option("-u,--update-port", update_server_port, "Update server port")
+        ->default_val(update_server_port);
+    app.add_option("-t,--version-table", version_table_url, "Version table URL")
+        ->default_val(version_table_url);
+    app.add_option("-d,--update-dir", update_dir, "Directory for downloaded updates")
+        ->default_val(update_dir);
+    app.add_flag("-f,--force", skip_version_check, "Skip version check");
+    app.add_option("-v,--version", target_version, "Target version to update to (optional)");
+    app.add_option("-c,--calculate-hash", calculate_hash_file, "Calculate SHA256 hash for a file");
+    app.add_flag(
+        "-g,--get-server-version", get_server_version, "Get and display the server version"
+    );
+
+    CLI11_PARSE(app, argc, argv);
 
     try {
-        po::variables_map vm;
-        po::store(po::parse_command_line(argc, argv, desc), vm);
-
-        if (vm.count("help")) {
-            std::cout << desc << "\n";
-            return 0;
-        }
-
-        po::notify(vm);
-
         // Handle calculate-hash option
-        if (vm.count("calculate-hash")) {
-            auto file_path = vm["calculate-hash"].as<std::string>();
-            auto hash = xvc::calculate_sha256(file_path);
+        if (!calculate_hash_file.empty()) {
+            auto hash = xvc::calculate_sha256(calculate_hash_file);
             if (hash) {
-                return 0;
+                return EXIT_SUCCESS;
             } else {
-                spdlog::error("Failed to calculate hash for file: {}", file_path);
-                return 1;
+                spdlog::error("Failed to calculate hash for file: {}", calculate_hash_file);
+                return EXIT_FAILURE;
             }
         }
 
         // Handle get-server-version option
-        if (vm["get-server-version"].as<bool>()) {
+        if (get_server_version) {
             auto version = xvc::get_server_version(server_address, server_port);
             if (version) {
                 spdlog::info("Server version: {}", version->to_string());
-                return 0;
+                return EXIT_SUCCESS;
             } else {
                 spdlog::error("Failed to get server version");
-                return 1;
+                return EXIT_FAILURE;
             }
         }
 
@@ -89,7 +70,7 @@ int main(int argc, char *argv[])
             auto parsed_version = xvc::Version::from_string(target_version);
             if (!parsed_version) {
                 spdlog::error("Invalid target version format: {}", target_version);
-                return 1;
+                return EXIT_FAILURE;
             }
             force_version = *parsed_version;
         }
@@ -108,14 +89,14 @@ int main(int argc, char *argv[])
 
         if (!result.success) {
             spdlog::error("Update failed: {}", result.error_message);
-            return 1;
+            return EXIT_FAILURE;
         }
 
         if (!result.update_needed) {
             spdlog::info(
                 "Server is already up to date (version {})", result.current_version.to_string()
             );
-            return 0;
+            return EXIT_SUCCESS;
         }
 
         spdlog::info(
@@ -123,14 +104,9 @@ int main(int argc, char *argv[])
             result.current_version.to_string(),
             result.available_version.to_string()
         );
-        return 0;
-
-    } catch (const po::error &e) {
-        spdlog::error("Command line error: {}", e.what());
-        std::cerr << desc << "\n";
-        return 1;
+        return EXIT_SUCCESS;
     } catch (const std::exception &e) {
         spdlog::error("Error: {}", e.what());
-        return 1;
+        return EXIT_FAILURE;
     }
 }
