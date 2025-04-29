@@ -10,5 +10,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Test server on reboot
+      - name: Test server on reboot (Windows)
+        if: runner.os == 'Windows'
+        run: $env:USERPROFILE\reboot-remote.ps1
+
+      - name: Test server on reboot (macOS)
+        if: runner.os == 'macOS'
         run: $HOME/reboot-remote.sh
