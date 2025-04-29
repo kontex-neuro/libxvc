@@ -4,16 +4,20 @@ on:
   workflow_dispatch:
 
 jobs:
-  reboot-remote:
-    runs-on: self-hosted
+  reboot-windows:
+    runs-on: [self-hosted, windows]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Test server on reboot (Windows)
-        if: runner.os == 'Windows'
+      - name: Test server on reboot
         run: $env:USERPROFILE\reboot-remote.ps1
 
-      - name: Test server on reboot (macOS)
-        if: runner.os == 'macOS'
+  reboot-macos:
+    runs-on: [self-hosted, macos]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test server on reboot
         run: $HOME/reboot-remote.sh
