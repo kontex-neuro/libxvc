@@ -53,6 +53,7 @@ target_link_libraries(libxvc
         PkgConfig::gstreamer
         xdaqmetadata::xdaqmetadata
         Boost::boost
+        OpenSSL::SSL
 )
 
 install(
