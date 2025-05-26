@@ -16,8 +16,8 @@ class libxvc(ConanFile):
     def build_requirements(self):
         self.tool_requires("cmake/[>=3.25.0 <3.30.0]")
         self.tool_requires("ninja/[>=1.12.0]")
-        # self.requires("catch2/3.5.0")
         if self.options.build_testing:
+            # self.test_requires("catch2/3.8.0")
             self.test_requires("gtest/1.14.0")
 
     def requirements(self):

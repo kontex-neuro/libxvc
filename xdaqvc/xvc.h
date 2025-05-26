@@ -16,7 +16,12 @@ namespace xvc
 
 void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri);
 void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri);
-void mock_camera(GstPipeline *pipeline, const std::string &);
+
+void decode_toggle(GstPipeline *pipeline, bool decode = true);
+
+void mock_camera(
+    GstPipeline *pipeline, [[maybe_unused]] const std::string &uri, const std::string &current_cap
+);
 
 void start_h265_recording(
     GstPipeline *pipeline, fs::path &filepath, bool continuous, int max_size_time, int max_files

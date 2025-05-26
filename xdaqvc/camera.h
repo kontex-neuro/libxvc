@@ -36,10 +36,14 @@ public:
     void start(const std::chrono::milliseconds duration = 500ms);
     void stop(const std::chrono::milliseconds duration = 500ms);
 
+    void set_test(const bool test) { _test = test; };
+    [[nodiscard]] bool test_mode() const { return _test; };
+
 private:
     int _id;
     unsigned short _port;
     std::string _name;
     std::vector<Cap> _caps;
     std::string _current_cap;
+    bool _test;
 };

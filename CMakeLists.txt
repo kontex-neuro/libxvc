@@ -37,6 +37,8 @@ add_subdirectory(tool)
 if(BUILD_TESTING)
     enable_testing()
     find_package(GTest REQUIRED)
+    find_package(Catch2 REQUIRED)
+    include(CTest)
     add_subdirectory(test)
 endif()
 

@@ -125,7 +125,6 @@ std::string cap_to_string(const Camera::Cap &cap)
     }
 }
 
-
 std::vector<Camera *> cameras()
 {
     auto const cameras_str = Camera::cameras();
@@ -165,7 +164,7 @@ std::vector<Camera *> cameras()
 
 }  // namespace
 
-int main(int argc, char *argv[])
+int func(int argc, char *argv[])
 {
     CLI::App app("Thor Vision CLI", "tvcli");
     argv = app.ensure_utf8(argv);
@@ -178,6 +177,7 @@ int main(int argc, char *argv[])
     auto split = false;
     auto max_size_time = 5;
     auto max_files = 10;
+    auto test = false;
     std::string log_file;
 
     auto stream = app.add_subcommand("stream", "Stream camera");
@@ -192,6 +192,7 @@ int main(int argc, char *argv[])
         ->default_val(5);
     stream->add_option("--max-files", max_files, "Maximum number of files to keep")
         ->default_val(10);
+    stream->add_flag("-t,--test", test, "Enable test mode")->default_val(test);
 
     auto list = app.add_subcommand("list", "List cameras");
     list->add_option("--host", host, "Host computer that connected cameras")->default_val(host);
@@ -213,28 +214,33 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
         }
 
-        cams = cameras();
-        for (auto cam : cams) {
-            if (id == cam->id()) {
-                stream_cam = cam;
-                break;
+        if (!test) {
+            cams = cameras();
+            for (auto cam : cams) {
+                if (id == cam->id()) {
+                    stream_cam = cam;
+                    break;
+                }
             }
-        }
-        if (!stream_cam) {
-            fmt::println("Error: no camera with id = {}", id);
-            return EXIT_FAILURE;
-        }
+            if (!stream_cam) {
+                fmt::println("Error: no camera with id = {}", id);
+                return EXIT_FAILURE;
+            }
 
-        auto caps = stream_cam->caps();
-        auto it = std::find_if(caps.begin(), caps.end(), [cap](const Camera::Cap &_cap) {
-            return cap_to_string(_cap) == cap;
-        });
-        if (it == caps.end()) {
-            fmt::println("Error: Camera {} does not support cap '{}'", id, cap);
-            return EXIT_FAILURE;
+            auto caps = stream_cam->caps();
+            auto it = std::find_if(caps.begin(), caps.end(), [cap](const Camera::Cap &_cap) {
+                return cap_to_string(_cap) == cap;
+            });
+            if (it == caps.end()) {
+                fmt::println("Error: Camera {} does not support cap '{}'", id, cap);
+                return EXIT_FAILURE;
+            }
+        } else {
+            stream_cam = new Camera(id, "test");
         }
 
         stream_cam->set_current_cap(cap);
+        stream_cam->set_test(test);
         stream_cam->start();
 
         auto uri = fmt::format("{}:{}", host, stream_cam->port());
@@ -308,9 +314,20 @@ int main(int argc, char *argv[])
     }
 
     if (*logs) {
-        auto logs = log_file.empty() ? xvc::server_logs() : xvc::server_logs(log_file);
+        auto server = xvc::Server(host);
+        auto logs = log_file.empty() ? server.logs() : server.logs(log_file);
+
         fmt::println("{}", logs);
     }
 
     return EXIT_SUCCESS;
+}
+
+int main(int argc, char *argv[])
+{
+#if defined(__APPLE__) && TARGET_OS_MAC && !TARGET_OS_IPHONE
+    return gst_macos_main((GstMainFunc) func, argc, argv, nullptr);
+#else
+    return func(argc, argv);
+#endif
 }

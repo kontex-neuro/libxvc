@@ -193,7 +193,7 @@ void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
     std::unique_ptr<GstCaps, decltype(&gst_caps_unref)> cf_conv_caps(
         gst_caps_new_simple(
         "video/x-raw",
-        "format", G_TYPE_STRING, "RGB", 
+        "format", G_TYPE_STRING, "RGB",
         nullptr),
         gst_caps_unref
     );
@@ -210,6 +210,48 @@ void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
         !gst_element_link_many(tee, queue_display, dec, conv, cf_conv, appsink, nullptr)) {
         spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
+    }
+}
+
+void decode_toggle(GstPipeline *pipeline, bool decode)
+{
+    std::unique_ptr<GstElement, decltype(&gst_object_unref)> queue_display(
+        gst_bin_get_by_name(GST_BIN(pipeline), "queue_display"), gst_object_unref
+    );
+    if (!queue_display) {
+        spdlog::error("Failed to find element: 'queue_display'");
+        return;
+    }
+
+    std::unique_ptr<GstPad, decltype(&gst_object_unref)> src_pad(
+        gst_element_get_static_pad(queue_display.get(), "src"), gst_object_unref
+    );
+    if (!src_pad) {
+        spdlog::error("Failed to get src pad from 'queue_display'");
+        return;
+    }
+
+    static unsigned long probe_id = 0;
+
+    if (decode) {
+        spdlog::debug(
+            "Remove probe from src pad on 'queue_display' to allow buffers to pass through"
+        );
+        // TODO: 'decode' defaults to true, this line generate a warning
+        gst_pad_remove_probe(src_pad.get(), probe_id);
+
+    } else {
+        spdlog::debug("Add probe to src pad on 'queue_display' to drop buffers");
+        probe_id = gst_pad_add_probe(
+            src_pad.get(),
+            GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *pad, GstPadProbeInfo *info, gpointer user_data) -> GstPadProbeReturn {
+                spdlog::debug("Drop buffer before decode");
+                return GST_PAD_PROBE_DROP;
+            },
+            nullptr,
+            nullptr
+        );
     }
 }
 
@@ -291,7 +333,7 @@ void stop_h265_recording(GstPipeline *pipeline)
 
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     auto src_pad = gst_element_get_static_pad(tee, "src_1");
-    
+
     // Increase the reference count so that 'pipeline' remains valid.
     gst_object_ref(pipeline);
 
@@ -465,27 +507,49 @@ void stop_jpeg_recording(GstPipeline *pipeline)
     );
 }
 
-void mock_camera(GstPipeline *pipeline, const std::string &)
+void mock_camera(
+    GstPipeline *pipeline, [[maybe_unused]] const std::string &uri, const std::string &current_cap
+)
 {
     spdlog::info("Setup GStreamer mock camera SRT Stream");
 
+    auto parser = [](const std::string &camera_cap) {
+        std::unordered_map<std::string, std::string> caps_map;
+        std::stringstream ss(camera_cap);
+        std::string token;
+
+        // "image/jpeg,width=640,height=480,framerate=601/1";
+        while (std::getline(ss, token, ',')) {
+            auto pos = token.find('=');
+            if (pos != std::string::npos) {
+                auto k = token.substr(0, pos);
+                auto v = token.substr(pos + 1);
+                caps_map[k] = v;
+            } else {
+                caps_map["media_type"] = token;
+            }
+        }
+        return caps_map;
+    };
+    std::unordered_map<std::string, std::string> caps_map = parser(current_cap);
+
+    // auto media_type = caps_map["media_type"];
+    auto width = std::stoi(caps_map["width"]);
+    auto height = std::stoi(caps_map["height"]);
+
+    std::stringstream ss(caps_map["framerate"]);
+    auto fps_n = 0, fps_d = 1;
+    char slash;
+    ss >> fps_n >> slash >> fps_d;
+
     auto src = create_element("videotestsrc", "src");
     auto cf_src = create_element("capsfilter", "cf_src");
-    // auto src = create_element("srtsrc", "src");
-    // auto tee = create_element("tee", "t");
-    // #ifdef JPEG_CLIENT
-    //     auto parser = create_element("jpegparse", "parser");
-    //     auto dec = create_element("jpegdec", "dec");
-    // #elif H265_CLIENT
-    //     auto parser = create_element("h265parse", "parser");
-    //     auto dec = create_element("d3d12h265device1dec", "dec");
-    // #elif H264_CLIENT
-    //     auto parser = create_element("h264parse", "parser");
-    //     auto dec = create_element("d3d12h264device1dec", "dec");
-    // #endif
-    // auto conv = create_element("videoconvert", "conv");
-    // auto cf_conv = create_element("capsfilter", "cf_conv");
-    // auto queue = create_element("queue", "queue");
+    auto tee = create_element("tee", "t");
+    auto queue_display = create_element("queue", "queue_display");
+
+    auto enc = create_element("jpegenc", "enc");
+    // auto dec = create_element("jpegdec", "dec");
+    auto fpsdisplaysink = create_element("fpsdisplaysink", "fpsdisplaysink");
     auto appsink = create_element("appsink", "appsink");
 
     // clang-format off
@@ -493,51 +557,46 @@ void mock_camera(GstPipeline *pipeline, const std::string &)
         gst_caps_new_simple(
             "video/x-raw",
             "format", G_TYPE_STRING, "RGB", 
-            // "width", G_TYPE_INT, 720,
-            "width", G_TYPE_INT, 3840,
-            // "height", G_TYPE_INT, 540,
-            "height", G_TYPE_INT, 2160,
-            "framerate", GST_TYPE_FRACTION, 500, 1,
+            "width", G_TYPE_INT, width,
+            "height", G_TYPE_INT, height,
+            "framerate", GST_TYPE_FRACTION, fps_n, fps_d,
             nullptr
         ),
         gst_caps_unref
     );
-    std::unique_ptr<GstCaps, decltype(&gst_caps_unref)> cf_conv_caps(
-        gst_caps_new_simple(
-        "video/x-raw",
-        "format", G_TYPE_STRING, "RGB", 
-        nullptr),
-        gst_caps_unref
-    );
     // clang-format on
 
-    // g_object_set(G_OBJECT(src), "pattern", 18, nullptr);
-    // g_object_set(G_OBJECT(src), "uri", fmt::format("srt://{}", uri).c_str(), nullptr);
+    g_object_set(G_OBJECT(src), "pattern", 18, nullptr);
+    g_object_set(G_OBJECT(src), "is-live", true, nullptr);
     g_object_set(G_OBJECT(cf_src), "caps", cf_src_caps.get(), nullptr);
-    // g_object_set(G_OBJECT(cf_conv), "caps", cf_conv_caps.get(), nullptr);
-    g_object_set(G_OBJECT(appsink), "drop", true, nullptr);
+    g_object_set(G_OBJECT(fpsdisplaysink), "video-sink", appsink, nullptr);
+    g_object_set(G_OBJECT(fpsdisplaysink), "sync", false, nullptr);
+    g_object_set(G_OBJECT(fpsdisplaysink), "text-overlay", false, nullptr);
     g_object_set(G_OBJECT(appsink), "sync", false, nullptr);
 
     gst_bin_add_many(
-        GST_BIN(pipeline),
-        src,
-        cf_src,
-        // parser,
-        // // tee,
-        // dec,
-        // conv,
-        // cf_conv,
-        // queue,
-        appsink,
-        nullptr
+        GST_BIN(pipeline), src, cf_src, enc, tee, queue_display, fpsdisplaysink, nullptr
     );
 
-    // if (!gst_element_link_many(src, parser, dec, conv, cf_conv, queue, appsink, nullptr)) {
-    if (!gst_element_link_many(src, cf_src, appsink, nullptr)) {
-        // if (!gst_element_link_many(src, cf_src, parser, dec, conv, cf_conv, appsink, nullptr)) {
+    if (!gst_element_link_many(src, cf_src, enc, tee, queue_display, fpsdisplaysink, nullptr)) {
         spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
     }
+
+    // FPS watcher thread
+    // auto pipeline_name = gst_element_get_name(GST_ELEMENT(pipeline));
+
+    // std::thread([pipeline_name, fpsdisplaysink]() {
+    //     while (true) {
+    //         gchar *msg = nullptr;
+    //         g_object_get(G_OBJECT(fpsdisplaysink), "last-message", &msg, nullptr);
+    //         if (msg) {
+    //             spdlog::info("fps{}: {}", pipeline_name, msg);
+    //             g_free(msg);
+    //         }
+    //         std::this_thread::sleep_for(std::chrono::seconds(1));
+    //     }
+    // }).detach();
 }
 
 void parse_video_save_binary_h265(const std::string &video_filepath)
