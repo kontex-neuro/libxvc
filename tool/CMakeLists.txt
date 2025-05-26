@@ -20,7 +20,6 @@ target_link_libraries(xvc_update_tool
     PRIVATE
         libxvc
         CLI11::CLI11
-        openssl::openssl
 )
 target_compile_features(xvc_update_tool PRIVATE cxx_std_20)
 target_compile_options(xvc_update_tool
