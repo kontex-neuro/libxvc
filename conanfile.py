@@ -4,7 +4,7 @@ from conan.tools.cmake import CMakeToolchain, CMake, cmake_layout, CMakeDeps
 
 class libxvc(ConanFile):
     name = "libxvc"
-    version = "0.0.3"
+    version = "0.1.0"
     settings = "os", "compiler", "build_type", "arch"
     generators = "VirtualRunEnv"
     license = "LGPL-3.0-or-later"
@@ -26,7 +26,7 @@ class libxvc(ConanFile):
         self.requires("spdlog/1.13.0")
         self.requires("nlohmann_json/3.11.3")
         self.requires("cpr/1.10.5")
-        self.requires("xdaqmetadata/0.0.1")
+        self.requires("xdaqmetadata/0.1.0")
         self.requires("openssl/3.4.1")
         self.requires("cli11/2.5.0")
 

@@ -19,7 +19,7 @@ auto constexpr CLOSE = "close";
 auto constexpr ROUTE = "/ws";
 
 // Report a failure
-void fail(beast::error_code ec, char const *what) { spdlog::error("{} : {}", what, ec.message()); }
+void fail(beast::error_code ec, char const *what) { spdlog::debug("{} : {}", what, ec.message()); }
 
 }  // namespace
 
@@ -175,7 +175,7 @@ ws_client::ws_client(std::function<void(std::string)> handler) : _event_handler(
             // the socket is closed.
             _ioc->run();
 
-            spdlog::debug("WebSocket closed");
+            spdlog::info("WebSocket closed");
         } catch (const std::exception &e) {
             spdlog::error("WebSocket thread error: {}", e.what());
         }
