@@ -74,10 +74,14 @@ gchararray generate_filename(
     tracker->file_paths.emplace_back(file_path);
 
     if (tracker->file_paths.size() > static_cast<size_t>(tracker->max_files)) {
-        fs::remove(tracker->file_paths.front());
-        auto binFile = tracker->file_paths.front();
-        binFile.replace_extension(".bin");
-        fs::remove(binFile);
+        auto _file_path = tracker->file_paths.front();
+        fs::remove(_file_path);
+        spdlog::debug("Remove file: {}", _file_path.generic_string());
+
+        _file_path.replace_extension(".bin");
+        fs::remove(_file_path);
+        spdlog::debug("Remove file: {}", _file_path.generic_string());
+
         tracker->file_paths.erase(tracker->file_paths.begin());
     }
 
@@ -245,7 +249,9 @@ void decode_toggle(GstPipeline *pipeline, bool decode)
         probe_id = gst_pad_add_probe(
             src_pad.get(),
             GST_PAD_PROBE_TYPE_BUFFER,
-            [](GstPad *pad, GstPadProbeInfo *info, gpointer user_data) -> GstPadProbeReturn {
+            []([[maybe_unused]] GstPad *pad,
+               [[maybe_unused]] GstPadProbeInfo *info,
+               [[maybe_unused]] gpointer user_data) -> GstPadProbeReturn {
                 spdlog::debug("Drop buffer before decode");
                 return GST_PAD_PROBE_DROP;
             },
@@ -395,7 +401,8 @@ void stop_h265_recording(GstPipeline *pipeline)
 }
 
 void start_jpeg_recording(
-    GstPipeline *pipeline, fs::path &filepath, bool continuous, int max_size_time, int max_files
+    GstPipeline *pipeline, fs::path &filepath, bool continuous, int max_size_time, TimeUnit unit,
+    int max_files
 )
 {
     spdlog::info("Start GStreamer M-JPEG recording");
@@ -407,14 +414,20 @@ void start_jpeg_recording(
     auto parser = create_element("jpegparse", "record_parser");
     auto filesink = create_element("splitmuxsink", "filesink");
 
-    auto _max_size_time = continuous ? 0 : max_size_time * GST_SECOND * 60;
+    switch (unit) {
+    case TimeUnit::Minutes: max_size_time = max_size_time * 60; break;
+    case TimeUnit::Hours: max_size_time = max_size_time * 60 * 60; break;
+    case TimeUnit::Days: max_size_time = max_size_time * 60 * 60 * 24; break;
+    default: break;
+    }
+
     auto tracker =
         std::make_unique<FileTracker>(FileTracker{filepath.generic_string(), {}, max_files});
 
     g_signal_connect(filesink, "format-location", G_CALLBACK(generate_filename), tracker.release());
 
     g_object_set(
-        G_OBJECT(filesink), "max-size-time", _max_size_time, nullptr
+        G_OBJECT(filesink), "max-size-time", continuous ? 0 : max_size_time * GST_SECOND, nullptr
     );  // max-size-time=0 -> continuous
     g_object_set(G_OBJECT(filesink), "max-files", max_files, nullptr);
     g_object_set(G_OBJECT(filesink), "async-finalize", true, nullptr);

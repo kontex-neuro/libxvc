@@ -7,12 +7,12 @@
 #include <filesystem>
 #include <string>
 
-
 namespace fs = std::filesystem;
-
 
 namespace xvc
 {
+
+enum class TimeUnit { Seconds = 0, Minutes, Hours, Days };
 
 void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri);
 void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri);
@@ -29,7 +29,8 @@ void start_h265_recording(
 void stop_h265_recording(GstPipeline *pipeline);
 
 void start_jpeg_recording(
-    GstPipeline *pipeline, fs::path &filepath, bool continuous, int max_size_time, int max_files
+    GstPipeline *pipeline, fs::path &filepath, bool continuous = true, int max_size_time = 10,
+    TimeUnit unit = TimeUnit::Minutes, int max_files = 10
 );
 void stop_jpeg_recording(GstPipeline *pipeline);
 

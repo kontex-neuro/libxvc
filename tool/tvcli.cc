@@ -179,20 +179,43 @@ int func(int argc, char *argv[])
     auto max_files = 10;
     auto test = false;
     std::string log_file;
+    std::string time_unit;
 
     auto stream = app.add_subcommand("stream", "Stream camera");
     stream->add_option("--host", host, "Host computer that connected cameras")->default_val(host);
     stream->add_option("-i,--id", id, "Camera device ID")->required();
     stream->add_option("--cap", cap, "Camera capability")->required();
     stream->add_option("--codec", codec, "Camera codec")->required();
-    stream->add_flag("-r,--record", record, "Whether to record stream");
-    stream->add_option("--location", location, "Location to save record")->default_val(location);
-    stream->add_flag("-s,--split", split, "Enable split recording")->default_val(split);
-    stream->add_option("--max-size-time", max_size_time, "Max recording time per file (minutes)")
-        ->default_val(5);
-    stream->add_option("--max-files", max_files, "Maximum number of files to keep")
-        ->default_val(10);
+
+    auto opt_record =
+        stream->add_flag("-r,--record", record, "Whether to record stream")->group("Record");
+    auto opt_location = stream->add_option("--location", location, "Location to save record")
+                            ->default_val(location)
+                            ->group("Record");
+    auto opt_split = stream->add_flag("-s,--split", split, "Enable split recording")
+                         ->default_val(split)
+                         ->group("Record");
+    auto opt_max_size_time =
+        stream
+            ->add_option("--max-size-time", max_size_time, "Max recording time per file (minutes)")
+            ->default_val(5)
+            ->group("Split");
+    auto opt_time_unit =
+        stream->add_option("--time-unit", time_unit, "Time unit for recording split size")
+            ->check(CLI::IsMember({"seconds", "minutes", "hours", "days"}))
+            ->default_val("minutes")
+            ->group("Split");
+    auto opt_max_files =
+        stream->add_option("--max-files", max_files, "Maximum number of files to keep")
+            ->default_val(10)
+            ->group("Split");
     stream->add_flag("-t,--test", test, "Enable test mode")->default_val(test);
+
+    opt_location->needs(opt_record);
+    opt_split->needs(opt_record);
+    opt_max_size_time->needs(opt_split);
+    opt_time_unit->needs(opt_split);
+    opt_max_files->needs(opt_split);
 
     auto list = app.add_subcommand("list", "List cameras");
     list->add_option("--host", host, "Host computer that connected cameras")->default_val(host);
@@ -205,6 +228,21 @@ int func(int argc, char *argv[])
 
     signal(SIGINT, handle_sigint);
     gst_init(&argc, &argv);
+
+    xvc::TimeUnit unit;
+
+    if (time_unit == "seconds")
+        unit = xvc::TimeUnit::Seconds;
+    else if (time_unit == "minutes")
+        unit = xvc::TimeUnit::Minutes;
+    else if (time_unit == "hours")
+        unit = xvc::TimeUnit::Hours;
+    else if (time_unit == "days")
+        unit = xvc::TimeUnit::Days;
+    else {
+        fmt::println("Invalid time unit specified.");
+        return EXIT_FAILURE;
+    }
 
     if (*stream) {
         // TODO: support h264, h265
@@ -263,7 +301,7 @@ int func(int argc, char *argv[])
             xvc::setup_jpeg_srt_stream(GST_PIPELINE(pipeline), uri);
             if (record) {
                 xvc::start_jpeg_recording(
-                    GST_PIPELINE(pipeline), filepath, !split, max_size_time, max_files
+                    GST_PIPELINE(pipeline), filepath, !split, max_size_time, unit, max_files
                 );
             }
         }
