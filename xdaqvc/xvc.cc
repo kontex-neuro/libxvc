@@ -176,7 +176,7 @@ void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
 
 void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
 {
-    spdlog::info("Setup GStreamer M-JPEG SRT stream pipeline");
+    spdlog::info("Setup GStreamer M-JPEG SRT stream pipeline with uri: {}", uri);
 
     auto src = create_element("srtclientsrc", "src");
     auto parser = create_element("jpegparse", "parser");
@@ -191,6 +191,7 @@ void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
 #endif
     auto conv = create_element("videoconvert", "conv");
     auto cf_conv = create_element("capsfilter", "cf_conv");
+    auto fpsdisplaysink = create_element("fpsdisplaysink", "fpsdisplaysink");
     auto appsink = create_element("appsink", "appsink");
 
     // clang-format off
@@ -205,13 +206,26 @@ void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
 
     g_object_set(G_OBJECT(src), "uri", fmt::format("srt://{}", uri).c_str(), nullptr);
     g_object_set(G_OBJECT(cf_conv), "caps", cf_conv_caps.get(), nullptr);
+    g_object_set(G_OBJECT(appsink), "sync", false, nullptr);
+    g_object_set(G_OBJECT(fpsdisplaysink), "video-sink", appsink, nullptr);
+    g_object_set(G_OBJECT(fpsdisplaysink), "text-overlay", false, nullptr);
+    g_object_set(G_OBJECT(fpsdisplaysink), "sync", false, nullptr);
 
     gst_bin_add_many(
-        GST_BIN(pipeline), src, parser, tee, queue_display, dec, conv, cf_conv, appsink, nullptr
+        GST_BIN(pipeline),
+        src,
+        parser,
+        tee,
+        queue_display,
+        dec,
+        conv,
+        cf_conv,
+        fpsdisplaysink,
+        nullptr
     );
 
     if (!gst_element_link_many(src, parser, tee, nullptr) ||
-        !gst_element_link_many(tee, queue_display, dec, conv, cf_conv, appsink, nullptr)) {
+        !gst_element_link_many(tee, queue_display, dec, conv, cf_conv, fpsdisplaysink, nullptr)) {
         spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
     }
@@ -252,7 +266,7 @@ void decode_toggle(GstPipeline *pipeline, bool decode)
             []([[maybe_unused]] GstPad *pad,
                [[maybe_unused]] GstPadProbeInfo *info,
                [[maybe_unused]] gpointer user_data) -> GstPadProbeReturn {
-                spdlog::debug("Drop buffer before decode");
+                spdlog::trace("Drop buffer before decode");
                 return GST_PAD_PROBE_DROP;
             },
             nullptr,
@@ -413,6 +427,7 @@ void start_jpeg_recording(
     auto queue_record = create_element("queue", "queue_record");
     auto parser = create_element("jpegparse", "record_parser");
     auto filesink = create_element("splitmuxsink", "filesink");
+    auto muxer = create_element("matroskamux", "muxer");
 
     switch (unit) {
     case TimeUnit::Minutes: max_size_time = max_size_time * 60; break;
@@ -426,14 +441,18 @@ void start_jpeg_recording(
 
     g_signal_connect(filesink, "format-location", G_CALLBACK(generate_filename), tracker.release());
 
+    // clang-format off
+    g_object_set(G_OBJECT(muxer), "offset-to-zero", true, nullptr);
     g_object_set(
-        G_OBJECT(filesink), "max-size-time", continuous ? 0 : max_size_time * GST_SECOND, nullptr
-    );  // max-size-time=0 -> continuous
-    g_object_set(G_OBJECT(filesink), "max-files", max_files, nullptr);
-    g_object_set(G_OBJECT(filesink), "async-finalize", true, nullptr);
-    g_object_set(
-        G_OBJECT(filesink), "muxer-factory", "matroskamux", nullptr
-    );  // Valid only for async-finalize = TRUE
+        G_OBJECT(filesink),
+        "max-size-time", continuous ? 0 : max_size_time * GST_SECOND,  // max-size-time=0 -> continuous
+        "max-files", max_files,
+        "async-finalize", false,
+        "muxer", muxer,
+        nullptr
+    );
+    // clang-format on
+
 
     gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
 

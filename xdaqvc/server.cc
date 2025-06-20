@@ -4,7 +4,6 @@
 #include <fmt/core.h>
 #include <spdlog/spdlog.h>
 
-#include <cstdlib>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;

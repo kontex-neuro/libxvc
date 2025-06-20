@@ -26,7 +26,8 @@ PortPool pool(9000, 9064);
 
 }  // namespace
 
-Camera::Camera(const int id, const std::string &name) : _id(id), _name(name)
+Camera::Camera(const int id, const std::string &name)
+    : _id(id), _name(name), _current_cap(""), _test(false)
 {
     auto port = pool.allocate_port();
     if (port) {

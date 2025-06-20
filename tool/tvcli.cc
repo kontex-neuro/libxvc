@@ -34,7 +34,7 @@ bool record = false;
 Camera *stream_cam = nullptr;
 std::vector<Camera *> cams;
 
-GstFlowReturn draw_image(GstAppSink *sink, void *user_data)
+GstFlowReturn draw_image(GstAppSink *sink, [[maybe_unused]] void *user_data)
 {
     std::unique_ptr<GstSample, decltype(&gst_sample_unref)> sample(
         gst_app_sink_pull_sample(sink), gst_sample_unref
@@ -182,10 +182,13 @@ int func(int argc, char *argv[])
     std::string time_unit;
 
     auto stream = app.add_subcommand("stream", "Stream camera");
-    stream->add_option("--host", host, "Host computer that connected cameras")->default_val(host);
-    stream->add_option("-i,--id", id, "Camera device ID")->required();
-    stream->add_option("--cap", cap, "Camera capability")->required();
-    stream->add_option("--codec", codec, "Camera codec")->required();
+    stream->add_option("--host", host, "Host computer that connected cameras")
+        ->default_val(host)
+        ->group("Stream");
+    stream->add_option("-i,--id", id, "Camera device ID")->required()->group("Stream");
+    stream->add_option("--cap", cap, "Camera capability")->required()->group("Stream");
+    stream->add_option("--codec", codec, "Camera codec")->required()->group("Stream");
+    stream->add_flag("-t,--test", test, "Enable test mode")->default_val(test)->group("Stream");
 
     auto opt_record =
         stream->add_flag("-r,--record", record, "Whether to record stream")->group("Record");
@@ -209,7 +212,6 @@ int func(int argc, char *argv[])
         stream->add_option("--max-files", max_files, "Maximum number of files to keep")
             ->default_val(10)
             ->group("Split");
-    stream->add_flag("-t,--test", test, "Enable test mode")->default_val(test);
 
     opt_location->needs(opt_record);
     opt_split->needs(opt_record);
