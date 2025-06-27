@@ -442,6 +442,7 @@ void start_jpeg_recording(
     g_signal_connect(filesink, "format-location", G_CALLBACK(generate_filename), tracker.release());
 
     // clang-format off
+    g_object_set(G_OBJECT(muxer), "timecodescale", 1, nullptr);
     g_object_set(G_OBJECT(muxer), "offset-to-zero", true, nullptr);
     g_object_set(
         G_OBJECT(filesink),
