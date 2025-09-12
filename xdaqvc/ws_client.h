@@ -34,6 +34,8 @@ class session : public std::enable_shared_from_this<session>
     std::string _host;
     std::function<void(std::string)> _event_handler;
 
+    std::atomic<bool> _stopping{false};
+
 public:
     // Resolver and socket require an io_context
     explicit session(net::io_context &ioc, std::function<void(std::string)> handler);
@@ -46,6 +48,9 @@ public:
     void on_connect(beast::error_code ec, tcp::resolver::results_type::endpoint_type ep);
     void on_handshake(beast::error_code ec);
 
+    // tell the session to stop gracefully (no more reconnects)
+    void request_stop();
+
     void read();
     void on_read(beast::error_code ec, std::size_t bytes_transferred);
     void close();
@@ -57,8 +62,10 @@ public:
 class ws_client
 {
 public:
-    ws_client(std::function<void(std::string)> handler);
+    ws_client(std::function<void(std::string)> handler = nullptr);
     ~ws_client();
+
+    void shutdown();
 
 private:
     std::shared_ptr<session> _session;

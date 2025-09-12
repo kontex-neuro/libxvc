@@ -24,6 +24,8 @@
 #include <gst/video/video-info.h>
 #include <spdlog/spdlog.h>
 
+#include <climits>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -31,9 +33,7 @@
 #include "xdaqmetadata/key_value_store.h"
 #include "xdaqmetadata/xdaqmetadata.h"
 
-
 using namespace std::chrono_literals;
-
 
 namespace
 {
@@ -89,7 +89,6 @@ gchararray generate_filename(
 }
 
 }  // namespace
-
 
 namespace xvc
 {
@@ -176,6 +175,10 @@ void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
 
 void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
 {
+    if (!pipeline) {
+        spdlog::error("Pipeline is null");
+        return;
+    }
     spdlog::info("Setup GStreamer M-JPEG SRT stream pipeline with uri: {}", uri);
 
     auto src = create_element("srtclientsrc", "src");
@@ -228,50 +231,6 @@ void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
         !gst_element_link_many(tee, queue_display, dec, conv, cf_conv, fpsdisplaysink, nullptr)) {
         spdlog::error("Elements could not be linked.");
         gst_object_unref(pipeline);
-    }
-}
-
-void decode_toggle(GstPipeline *pipeline, bool decode)
-{
-    std::unique_ptr<GstElement, decltype(&gst_object_unref)> queue_display(
-        gst_bin_get_by_name(GST_BIN(pipeline), "queue_display"), gst_object_unref
-    );
-    if (!queue_display) {
-        spdlog::error("Failed to find element: 'queue_display'");
-        return;
-    }
-
-    std::unique_ptr<GstPad, decltype(&gst_object_unref)> src_pad(
-        gst_element_get_static_pad(queue_display.get(), "src"), gst_object_unref
-    );
-    if (!src_pad) {
-        spdlog::error("Failed to get src pad from 'queue_display'");
-        return;
-    }
-
-    static unsigned long probe_id = 0;
-
-    if (decode) {
-        spdlog::debug(
-            "Remove probe from src pad on 'queue_display' to allow buffers to pass through"
-        );
-        // TODO: 'decode' defaults to true, this line generate a warning
-        gst_pad_remove_probe(src_pad.get(), probe_id);
-
-    } else {
-        spdlog::debug("Add probe to src pad on 'queue_display' to drop buffers");
-        probe_id = gst_pad_add_probe(
-            src_pad.get(),
-            GST_PAD_PROBE_TYPE_BUFFER,
-            []([[maybe_unused]] GstPad *pad,
-               [[maybe_unused]] GstPadProbeInfo *info,
-               [[maybe_unused]] gpointer user_data) -> GstPadProbeReturn {
-                spdlog::trace("Drop buffer before decode");
-                return GST_PAD_PROBE_DROP;
-            },
-            nullptr,
-            nullptr
-        );
     }
 }
 
@@ -415,10 +374,30 @@ void stop_h265_recording(GstPipeline *pipeline)
 }
 
 void start_jpeg_recording(
-    GstPipeline *pipeline, fs::path &filepath, bool continuous, int max_size_time, TimeUnit unit,
-    int max_files
+    GstPipeline *pipeline, fs::path &filepath, bool split, int max_size_time, TimeUnit unit,
+    bool loop, int max_files
 )
 {
+    if (!pipeline) {
+        spdlog::error("Pipeline is null");
+        return;
+    }
+    if (filepath.empty()) {
+        spdlog::error("filepath is empty");
+        return;
+    }
+
+    auto path = filepath.parent_path();
+    if (!fs::exists(path)) {
+        spdlog::info("Create Directory: {}", path.generic_string());
+        std::error_code ec;
+        if (!fs::create_directories(path, ec)) {
+            spdlog::info(
+                "Failed to create directory: {}. Error: {}", path.generic_string(), ec.message()
+            );
+        }
+    }
+
     spdlog::info("Start GStreamer M-JPEG recording");
 
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
@@ -436,6 +415,8 @@ void start_jpeg_recording(
     default: break;
     }
 
+    max_files = loop ? max_files : INT_MAX;
+
     auto tracker =
         std::make_unique<FileTracker>(FileTracker{filepath.generic_string(), {}, max_files});
 
@@ -446,14 +427,12 @@ void start_jpeg_recording(
     g_object_set(G_OBJECT(muxer), "offset-to-zero", true, nullptr);
     g_object_set(
         G_OBJECT(filesink),
-        "max-size-time", continuous ? 0 : max_size_time * GST_SECOND,  // max-size-time=0 -> continuous
-        "max-files", max_files,
+        "max-size-time", split ? max_size_time * GST_SECOND : 0,  // max-size-time=0 -> continuous
         "async-finalize", false,
         "muxer", muxer,
         nullptr
     );
     // clang-format on
-
 
     gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
 
@@ -482,6 +461,10 @@ void start_jpeg_recording(
 
 void stop_jpeg_recording(GstPipeline *pipeline)
 {
+    if (!pipeline) {
+        spdlog::error("Pipeline is null");
+        return;
+    }
     spdlog::info("Stop GStreamer M-JPEG recording");
 
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");

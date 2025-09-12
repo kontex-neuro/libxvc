@@ -12,7 +12,6 @@
 #include <csignal>
 #include <cstdlib>
 #include <filesystem>
-#include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
@@ -20,8 +19,6 @@
 #include "server.h"
 #include "xdaqmetadata/metadata_handler.h"
 #include "xvc.h"
-
-using json = nlohmann::json;
 
 namespace
 {
@@ -98,68 +95,6 @@ void handle_sigint(int)
         g_main_loop_quit(loop);
     }
     std::exit(EXIT_SUCCESS);
-}
-
-std::string cap_to_string(const Camera::Cap &cap)
-{
-    // Skip format for image/jpeg media type
-    if (cap.format.empty()) {
-        return fmt::format(
-            "{},width={},height={},framerate={}/{}",
-            cap.media_type,
-            cap.width,
-            cap.height,
-            cap.fps_n,
-            cap.fps_d
-        );
-    } else {
-        return fmt::format(
-            "{},format={},width={},height={},framerate={}/{}",
-            cap.media_type,
-            cap.format,
-            cap.width,
-            cap.height,
-            cap.fps_n,
-            cap.fps_d
-        );
-    }
-}
-
-std::vector<Camera *> cameras()
-{
-    auto const cameras_str = Camera::cameras();
-    std::vector<Camera *> cams;
-
-    if (cameras_str.empty()) {
-        fmt::println("No camera found");
-        return cams;
-    }
-
-    auto const cameras_json = json::parse(cameras_str);
-
-    for (const auto &camera_json : cameras_json) {
-        auto id = camera_json["id"].get<int>();
-        auto name = camera_json["name"].get<std::string>();
-        auto cam = new Camera(id, name);
-
-        for (const auto &cap_json : camera_json["caps"]) {
-            Camera::Cap cap;
-            cap.media_type = cap_json["media_type"].get<std::string>();
-            cap.format = cap_json["format"].get<std::string>();
-            cap.width = cap_json["width"].get<int>();
-            cap.height = cap_json["height"].get<int>();
-
-            auto framerate_str = cap_json["framerate"].get<std::string>();
-            auto delimiter_pos = framerate_str.find('/');
-            if (delimiter_pos != std::string::npos) {
-                cap.fps_n = std::stoi(framerate_str.substr(0, delimiter_pos));
-                cap.fps_d = std::stoi(framerate_str.substr(delimiter_pos + 1));
-            }
-            cam->add_cap(cap);
-        }
-        cams.emplace_back(cam);
-    }
-    return cams;
 }
 
 }  // namespace
@@ -255,7 +190,7 @@ int func(int argc, char *argv[])
         }
 
         if (!test) {
-            cams = cameras();
+            cams = Camera::cameras();
             for (auto cam : cams) {
                 if (id == cam->id()) {
                     stream_cam = cam;
@@ -269,19 +204,24 @@ int func(int argc, char *argv[])
 
             auto caps = stream_cam->caps();
             auto it = std::find_if(caps.begin(), caps.end(), [cap](const Camera::Cap &_cap) {
-                return cap_to_string(_cap) == cap;
+                return _cap.to_string() == cap;
             });
             if (it == caps.end()) {
                 fmt::println("Error: Camera {} does not support cap '{}'", id, cap);
                 return EXIT_FAILURE;
             }
+            stream_cam->set_test(test);
+            stream_cam->start(*it);
         } else {
             stream_cam = new Camera(id, "test");
+            stream_cam->set_test(test);
+            stream_cam->start(Camera::Cap{
+                .media_type = "image/jpeg",
+                .width = 1920,
+                .height = 1080,
+                .fps_n = 30,
+            });
         }
-
-        stream_cam->set_current_cap(cap);
-        stream_cam->set_test(test);
-        stream_cam->start();
 
         auto uri = fmt::format("{}:{}", host, stream_cam->port());
         auto record_path = std::filesystem::current_path();
@@ -338,7 +278,7 @@ int func(int argc, char *argv[])
     }
 
     if (*list) {
-        cams = cameras();
+        cams = Camera::cameras();
         fmt::println("Discovered Cameras:");
 
         for (auto cam : cams) {
@@ -348,7 +288,7 @@ int func(int argc, char *argv[])
             fmt::println("Capabilities :");
 
             for (auto cap : cam->caps()) {
-                fmt::println("  - {}", cap_to_string(cap));
+                fmt::println("  - {}", cap.to_string());
             }
         }
     }

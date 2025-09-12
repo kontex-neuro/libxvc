@@ -17,8 +17,6 @@ enum class TimeUnit { Seconds = 0, Minutes, Hours, Days };
 void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri);
 void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri);
 
-void decode_toggle(GstPipeline *pipeline, bool decode = true);
-
 void mock_camera(
     GstPipeline *pipeline, [[maybe_unused]] const std::string &uri, const std::string &current_cap
 );
@@ -30,7 +28,7 @@ void stop_h265_recording(GstPipeline *pipeline);
 
 void start_jpeg_recording(
     GstPipeline *pipeline, fs::path &filepath, bool continuous = true, int max_size_time = 10,
-    TimeUnit unit = TimeUnit::Minutes, int max_files = 10
+    TimeUnit unit = TimeUnit::Minutes, bool loop = true, int max_files = 10
 );
 void stop_jpeg_recording(GstPipeline *pipeline);
 
