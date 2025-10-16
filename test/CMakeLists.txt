@@ -45,3 +45,20 @@ target_compile_options(xvc_updater_tests
 #         $<$<CXX_COMPILER_ID:MSVC>:/W4>
 #         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
 # )
+
+add_executable(test_ws_client)
+
+target_sources(test_ws_client
+    PRIVATE
+        test_ws_client.cc
+)
+target_link_libraries(test_ws_client
+    PRIVATE
+        libxvc
+)
+target_compile_features(test_ws_client PRIVATE cxx_std_20)
+target_compile_options(test_ws_client
+    PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+)

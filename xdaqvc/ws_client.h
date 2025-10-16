@@ -11,19 +11,18 @@
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
+#include <chrono>
+#include <functional>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <thread>
-
 
 namespace beast = boost::beast;          // from <boost/beast.hpp>
 namespace websocket = beast::websocket;  // from <boost/beast/websocket.hpp>
 namespace net = boost::asio;             // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp;        // from <boost/asio/ip/tcp.hpp>
 using namespace std::chrono_literals;
-
-
-namespace xvc
-{
 
 // Sends a WebSocket message and prints the response
 class session : public std::enable_shared_from_this<session>
@@ -32,24 +31,22 @@ class session : public std::enable_shared_from_this<session>
     websocket::stream<beast::tcp_stream> _ws;
     beast::flat_buffer _buffer;
     std::string _host;
-    std::function<void(std::string)> _event_handler;
-
-    std::atomic<bool> _stopping{false};
+    std::string _port;
+    std::function<void(std::string_view)> _handler;
 
 public:
     // Resolver and socket require an io_context
-    explicit session(net::io_context &ioc, std::function<void(std::string)> handler);
-    ~session() = default;
+    explicit session(
+        std::string_view host, std::string_view port, net::io_context &ioc,
+        std::function<void(std::string_view)> event_handler
+    );
 
     // Start the asynchronous operation
-    void run(char const *host, char const *port);
+    void run();
 
     void on_resolve(beast::error_code ec, tcp::resolver::results_type results);
     void on_connect(beast::error_code ec, tcp::resolver::results_type::endpoint_type ep);
     void on_handshake(beast::error_code ec);
-
-    // tell the session to stop gracefully (no more reconnects)
-    void request_stop();
 
     void read();
     void on_read(beast::error_code ec, std::size_t bytes_transferred);
@@ -59,19 +56,21 @@ public:
     void reconnect(const std::chrono::milliseconds timeout = 500ms);
 };
 
+namespace xvc
+{
+
 class ws_client
 {
 public:
-    ws_client(std::function<void(std::string)> handler = nullptr);
+    ws_client(
+        std::string_view host = "192.168.177.100", std::string_view port = "8000",
+        std::function<void(std::string_view)> event_handler = nullptr
+    );
     ~ws_client();
 
-    void shutdown();
-
 private:
-    std::shared_ptr<session> _session;
-    std::unique_ptr<net::io_context> _ioc;
+    net::io_context _ioc;
     std::jthread _thread;
-    std::function<void(std::string)> _event_handler;
 };
 
 }  // namespace xvc

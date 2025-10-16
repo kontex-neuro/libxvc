@@ -2,11 +2,13 @@ cmake_minimum_required(VERSION 3.25)
 
 set(libxvc_VERSION 0.1.0)
 
+set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum OS X deployment version" FORCE)
+
 project(libxvc
     LANGUAGES CXX
     VERSION "${libxvc_VERSION}"
     DESCRIPTION "Thor Vision Video Capture Library"
-    HOMEPAGE_URL "https://www.kontex.io/" 
+    HOMEPAGE_URL "https://github.com/kontex-neuro/libxvc"
 )
 
 if(APPLE)
