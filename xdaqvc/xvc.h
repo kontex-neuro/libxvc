@@ -28,7 +28,7 @@ void stop_h265_recording(GstPipeline *pipeline);
 
 void start_jpeg_recording(
     GstPipeline *pipeline, fs::path &filepath, bool continuous = true, int max_size_time = 10,
-    TimeUnit unit = TimeUnit::Minutes, bool loop = true, int max_files = 10
+    TimeUnit unit = TimeUnit::Minutes, bool loop = false, int max_files = 10
 );
 void stop_jpeg_recording(GstPipeline *pipeline);
 
