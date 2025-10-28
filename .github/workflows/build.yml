@@ -32,7 +32,7 @@ jobs:
           space_region: ${{ secrets.SPACE_REGION }}
         run: |
           curl -o gstreamer-1.26.tar.gz \
-            https://${space_name}.${space_region}.digitaloceanspaces.com/gstreamer/gstreamer-1.26.tar.gz
+            https://$space_name.$space_region.digitaloceanspaces.com/gstreamer/gstreamer-1.26.tar.gz
           mkdir -p ${{ runner.temp }}/gstreamer
           tar -xzvf gstreamer-1.26.tar.gz -C ${{ runner.temp }}/gstreamer
 
@@ -41,12 +41,14 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} # xdaqmetadata
 
+      - name: Clone xdaqmetadata
+        run: git clone git@github.com:kontex-neuro/xdaqmetadata.git
+
       - name: Install xdaqmetadata
         working-directory: xdaqmetadata
         env:
           PKG_CONFIG_PATH: ${{ runner.temp }}/gstreamer/lib/pkgconfig
         run: |
-          git clone git@github.com:kontex-neuro/xdaqmetadata.git
           conan install . -b missing -pr:a ${{ env.OS_ARCH }} -s build_type=Release
           cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release
           cmake --build build/Release
