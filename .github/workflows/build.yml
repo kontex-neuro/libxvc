@@ -20,6 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Install build tools
+        run: pip install cmake conan ninja
+
       - name: Conan setup
         run: conan config install .github/conan_profiles/${{ env.OS_ARCH }} -tf profiles
 
@@ -48,9 +51,6 @@ jobs:
           cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release
           cmake --build build/Release
           conan export-pkg . -pr:a ${{ env.OS_ARCH }} -s build_type=Release
-
-      - name: Install build tools
-        run: pip install cmake conan ninja
 
       - name: Cache conan
         uses: actions/cache@v4
