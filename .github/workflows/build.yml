@@ -65,9 +65,11 @@ jobs:
 
       - name: Add GitHub to known hosts (Windows)
         if: matrix.os == 'windows-2022'
+        shell: bash
         run: ssh-keyscan -H github.com >> ~/.ssh/known_hosts
 
       - name: Clone xdaqmetadata
+        shell: bash
         run: git clone -b dev --single-branch git@github.com:kontex-neuro/xdaqmetadata.git
 
       - name: Install xdaqmetadata
