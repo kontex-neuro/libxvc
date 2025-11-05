@@ -64,6 +64,7 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} # xdaqmetadata
 
       - name: Clone xdaqmetadata
+        shell: bash
         run: git clone -b dev --single-branch git@github.com:kontex-neuro/xdaqmetadata.git
 
       - name: Install xdaqmetadata
