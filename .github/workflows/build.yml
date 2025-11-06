@@ -23,6 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Setup Compiler (Windows)
+        if: matrix.os == 'windows-2022'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup Compiler (macOS)
+        if: matrix.os == 'macos-15'
+        run: |
+          echo "CC=$(brew --prefix llvm@18)/bin/clang" >> $GITHUB_ENV
+          echo "CXX=$(brew --prefix llvm@18)/bin/clang++" >> $GITHUB_ENV
+
       - name: Install build tools
         run: pipx install cmake conan ninja
 
