@@ -36,6 +36,10 @@ jobs:
       - name: Install build tools
         run: pipx install cmake conan ninja
 
+      - name: Install pkg-config (Windows)
+        if: matrix.os == 'windows-2022'
+        run: choco install pkgconfiglite
+
       - name: Install conan profile
         run: conan config install .github/conan_profiles/${{ matrix.os }}-${{ matrix.arch }} -tf profiles
 
