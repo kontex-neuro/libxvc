@@ -7,7 +7,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum OS X deployment ver
 project(libxvc
     LANGUAGES CXX
     VERSION "${libxvc_VERSION}"
-    DESCRIPTION "Thor Vision Video Capture Library"
+    DESCRIPTION "ThorVision Video Capture Library"
     HOMEPAGE_URL "https://github.com/kontex-neuro/libxvc"
 )
 
@@ -18,15 +18,14 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(Boost_USE_STATIC_LIBS ON)
-find_package(fmt REQUIRED)
-find_package(spdlog REQUIRED)
-find_package(nlohmann_json REQUIRED)
-find_package(cpr REQUIRED)
-find_package(xdaqmetadata REQUIRED)
-find_package(Boost 1.81.0 REQUIRED)
-find_package(CLI11 REQUIRED)
+find_package(fmt CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(cpr CONFIG REQUIRED)
+find_package(Boost REQUIRED COMPONENTS beast)
+find_package(CLI11 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(xdaqmetadata CONFIG REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
@@ -38,8 +37,8 @@ add_subdirectory(tool)
 
 if(BUILD_TESTING)
     enable_testing()
-    find_package(GTest REQUIRED)
-    find_package(Catch2 REQUIRED)
+    find_package(GTest CONFIG REQUIRED)
+    find_package(Catch2 CONFIG REQUIRED)
     include(CTest)
     add_subdirectory(test)
 endif()

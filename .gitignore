@@ -16,3 +16,6 @@
 
 *.log
 *.mkv
+
+# vcpkg
+vcpkg_installed

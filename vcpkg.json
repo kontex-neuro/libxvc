@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "libxvc",
+  "version": "0.1.1",
+  "description": "ThorVision Video Capture library",
+  "homepage": "https://github.com/kontex-neuro/libxvc",
+  "dependencies": [
+    "boost-beast",
+    "cpr",
+    "fmt",
+    "nlohmann-json",
+    "openssl",
+    "spdlog",
+    "xdaqmetadata",
+    "catch2",
+    "gtest",
+    "cli11"
+  ]
+}
