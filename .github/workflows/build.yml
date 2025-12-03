@@ -72,32 +72,10 @@ jobs:
 
           7z x "$gst_archive" -o"${{ runner.temp }}" -y
 
-      # - name: Configure SSH agent
-      #   uses: webfactory/ssh-agent@v0.9.0
-      #   with:
-      #     ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} # xdaqmetadata
-
-      # - name: Add GitHub to known hosts (Windows)
-      #   if: matrix.os == 'windows-2022'
-      #   shell: bash
-      #   run: ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-
-      # - name: Clone xdaqmetadata
-      #   shell: bash
-      #   run: git clone -b dev --single-branch git@github.com:kontex-neuro/xdaqmetadata.git
-
-      - name: Clone conan index
-        run: git clone --depth 1 --branch master https://github.com/kontex-neuro/kontex-conan.git
-
-      - name: Install xdaqmetadata (Windows)
-        if: matrix.os == 'windows-2022'
-        working-directory: kontex-conan
-        run: conan create recipes/xdaqmetadata/0.1.1 -s os="Windows" -s arch="${{ matrix.arch }}" -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type="Release"
-
-      - name: Install xdaqmetadata (macOS)
-        if: matrix.os == 'macos-15'
-        working-directory: kontex-conan
-        run: conan create recipes/xdaqmetadata/0.1.1 -s os="Macos" -s arch="${{ matrix.arch }}" -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type="Release"
+      - name: Setup conan index
+        run: |
+          git clone --depth 1 --branch master https://github.com/kontex-neuro/kontex-conan.git kontex-conan
+          conan remote add --force kontex-neuro ./kontex-conan
 
       - name: Build & Install
         env:
