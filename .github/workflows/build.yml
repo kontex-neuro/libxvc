@@ -92,12 +92,12 @@ jobs:
       - name: Install xdaqmetadata (Windows)
         if: matrix.os == 'windows-2022'
         working-directory: kontex-conan
-        run: conan create recipes/xdaqmetadata/0.1.1 -s os="Windows" -s arch="${{ matrix.arch }}" -s build_type="Release"
+        run: conan create recipes/xdaqmetadata/0.1.1 -s os="Windows" -s arch="${{ matrix.arch }}" -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type="Release"
 
       - name: Install xdaqmetadata (macOS)
         if: matrix.os == 'macos-15'
         working-directory: kontex-conan
-        run: conan create recipes/xdaqmetadata/0.1.1 -s os="Macos" -s arch="${{ matrix.arch }}" -s build_type="Release"
+        run: conan create recipes/xdaqmetadata/0.1.1 -s os="Macos" -s arch="${{ matrix.arch }}" -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type="Release"
 
       - name: Build & Install
         env:
