@@ -12,13 +12,13 @@ jobs:
             arch: x64
             base_name: windows-x86_64
           - os: macos-15
-            arch: arm64
-            base_name: macos-arm64
+            arch: armv8
+            base_name: macos-armv8
 
     runs-on: ${{ matrix.os }}
 
     env:
-      gst_version: 1.26
+      gst_version: 1.26.8
 
     steps:
       - uses: actions/checkout@v5
@@ -72,34 +72,56 @@ jobs:
 
           7z x "$gst_archive" -o"${{ runner.temp }}" -y
 
-      - name: Configure SSH agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} # xdaqmetadata
+      # - name: Configure SSH agent
+      #   uses: webfactory/ssh-agent@v0.9.0
+      #   with:
+      #     ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }} # xdaqmetadata
 
-      - name: Add GitHub to known hosts (Windows)
+      # - name: Add GitHub to known hosts (Windows)
+      #   if: matrix.os == 'windows-2022'
+      #   shell: bash
+      #   run: ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+
+      # - name: Clone xdaqmetadata
+      #   shell: bash
+      #   run: git clone -b dev --single-branch git@github.com:kontex-neuro/xdaqmetadata.git
+
+      - name: Clone conan index
+        run: git clone --depth 1 --branch master https://github.com/kontex-neuro/kontex-conan.git
+
+      - name: Install xdaqmetadata (Windows)
         if: matrix.os == 'windows-2022'
-        shell: bash
-        run: ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+        working-directory: kontex-conan
+        run: conan create recipes/xdaqmetadata/0.1.1 -s os="Windows" -s arch="${{ matrix.arch }}" -s build_type="Release"
 
-      - name: Clone xdaqmetadata
-        shell: bash
-        run: git clone -b dev --single-branch git@github.com:kontex-neuro/xdaqmetadata.git
+      - name: Install xdaqmetadata (macOS)
+        if: matrix.os == 'macos-15'
+        working-directory: kontex-conan
+        run: conan create recipes/xdaqmetadata/0.1.1 -s os="Macos" -s arch="${{ matrix.arch }}" -s build_type="Release"
 
-      - name: Install xdaqmetadata
-        working-directory: xdaqmetadata
+      - name: Build & Install
         env:
           PKG_CONFIG_PATH: ${{ runner.temp }}/gstreamer/lib/pkgconfig
         run: |
           conan install . -b missing -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type=Release
-          cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/Release
-          conan export-pkg . -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type=Release
+          cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_INSTALL_PREFIX=build/install -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/Release --target install 
 
-      - name: Build
-        env:
-          PKG_CONFIG_PATH: ${{ runner.temp }}/gstreamer/lib/pkgconfig
+      - name: Get & Set version
+        shell: bash
         run: |
-          conan install . -b missing -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type=Release
-          cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/Release
+          version=$(conan inspect -f json . | jq -r '.version')
+          echo $version
+          echo "version=$version" >> $GITHUB_ENV
+
+      - name: Zip
+        shell: bash
+        run: |
+          mv build/install ${{ matrix.base_name }}
+          7z a ${{ matrix.base_name }}-${{ env.version }}.zip ${{ matrix.base_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.base_name }}
+          path: ${{ matrix.base_name }}-${{ env.version }}.zip
