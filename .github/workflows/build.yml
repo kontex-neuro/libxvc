@@ -51,39 +51,71 @@ jobs:
           restore-keys: ${{ matrix.base_name }}-conan-
 
       - name: Cache gstreamer
-        id: cache-gstreamer
         uses: actions/cache@v4
+        id: cache-gstreamer
         with:
-          path: ${{ runner.temp }}/gstreamer
+          path: |
+            C:\Program Files\gstreamer
+            /Library/Frameworks/GStreamer.framework
           key: ${{ matrix.base_name }}-gstreamer-${{ env.gst_version }}
-          restore-keys: ${{ matrix.base_name }}-gstreamer
+          restore-keys: ${{ matrix.base_name }}-gstreamer-
 
-      - name: Download gstreamer
-        if: steps.cache-gstreamer.outputs.cache-hit != 'true'
+      - name: Install gstreamer (Windows)
+        if: matrix.os == 'windows-2022' && steps.cache-gstreamer.outputs.cache-hit != 'true'
         env:
-          space_name: ${{ secrets.SPACE_NAME }}
-          space_region: ${{ secrets.SPACE_REGION }}
+          gst_archive: gstreamer-1.0-msvc-x86_64-${{ env.gst_version }}.msi
+          gst_devel_archive: gstreamer-1.0-devel-msvc-x86_64-${{ env.gst_version }}.msi
+        run: |
+          curl -o "${{ env.gst_archive }}" "https://gstreamer.freedesktop.org/data/pkg/windows/${{ env.gst_version }}/msvc/${{ env.gst_archive }}"
+          curl -o "${{ env.gst_devel_archive }}" "https://gstreamer.freedesktop.org/data/pkg/windows/${{ env.gst_version }}/msvc/${{ env.gst_devel_archive }}"
+
+          $log = "install.log" 
+
+          $process = Start-Process "msiexec" "/i `"${{ env.gst_archive }}`" /qn /l*! `"$log`"" -NoNewWindow -PassThru
+          $process_log = Start-Process "powershell" "Get-Content -Path `"$log`" -Wait" -NoNewWindow -PassThru 
+          $process.WaitForExit() 
+          $process_log.Kill()
+
+          $process = Start-Process "msiexec" "/i `"${{ env.gst_devel_archive }}`" /qn /l*! `"$log`"" -NoNewWindow -PassThru
+          $process_log = Start-Process "powershell" "Get-Content -Path `"$log`" -Wait" -NoNewWindow -PassThru 
+          $process.WaitForExit() 
+          $process_log.Kill()
+
+      - name: Install gstreamer (macOS)
+        if: matrix.os == 'macos-15' && steps.cache-gstreamer.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          gst_archive=${{ matrix.base_name }}-${{ env.gst_version }}.zip
+          gst_archive=gstreamer-1.0-${{ env.gst_version }}-universal.pkg
+          gst_devel_archive=gstreamer-1.0-devel-${{ env.gst_version }}-universal.pkg
 
-          curl -o "$gst_archive" \
-            "https://${space_name}.${space_region}.digitaloceanspaces.com/gstreamer/$gst_archive"
+          curl -o "$gst_archive" "https://gstreamer.freedesktop.org/data/pkg/osx/${{ env.gst_version }}/$gst_archive"
+          curl -o "$gst_devel_archive" "https://gstreamer.freedesktop.org/data/pkg/osx/${{ env.gst_version }}/$gst_devel_archive"
 
-          7z x "$gst_archive" -o"${{ runner.temp }}" -y
+          sudo installer -pkg $gst_archive -target /
+          sudo installer -pkg $gst_devel_archive -target /
 
       - name: Setup conan index
         run: |
           git clone --depth 1 --branch master https://github.com/kontex-neuro/kontex-conan.git kontex-conan
           conan remote add --force kontex-neuro ./kontex-conan
 
-      - name: Build & Install
+      - name: Build & Install (Windows)
+        if: matrix.os == 'windows-2022'
         env:
-          PKG_CONFIG_PATH: ${{ runner.temp }}/gstreamer/lib/pkgconfig
+          PKG_CONFIG_PATH: "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\lib\\pkgconfig"
         run: |
           conan install . -b missing -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type=Release
           cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_INSTALL_PREFIX=build/install -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/Release --target install 
+          cmake --build build/Release --target install
+
+      - name: Build & Install (macOS)
+        if: matrix.os == 'macos-15'
+        env:
+          PKG_CONFIG_PATH: /Library/Frameworks/GStreamer.framework/Versions/1.0/lib/pkgconfig
+        run: |
+          conan install . -b missing -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type=Release
+          cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_INSTALL_PREFIX=build/install -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/Release --target install
 
       - name: Get & Set version
         shell: bash
