@@ -1,12 +1,6 @@
 #pragma once
 
-#ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0601
-#endif
-
-#ifndef _WIN32_WINDOWS
-#define _WIN32_WINDOWS 0x0601
-#endif
 
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>

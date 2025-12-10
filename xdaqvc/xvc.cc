@@ -398,15 +398,20 @@ void start_jpeg_recording(
         }
     }
 
-    spdlog::info("Start GStreamer M-JPEG recording");
+    spdlog::info("Start M-JPEG recording");
 
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
-    auto src_pad = gst_element_request_pad_simple(tee, "src_1");
+    if (auto exist_tee_srcpad = gst_element_get_static_pad(tee, "src_1")) {
+        spdlog::warn("tee 'src_1' pad already exists, releasing it...");
+        gst_element_release_request_pad(tee, exist_tee_srcpad);
+        gst_object_unref(exist_tee_srcpad);
+    }
+    auto tee_srcpad = gst_element_request_pad_simple(tee, "src_1");
 
-    auto queue_record = create_element("queue", "queue_record");
+    auto queue = create_element("queue", "queue_record");
     auto parser = create_element("jpegparse", "record_parser");
-    auto filesink = create_element("splitmuxsink", "filesink");
     auto muxer = create_element("matroskamux", "muxer");
+    auto filesink = create_element("splitmuxsink", "filesink");
 
     switch (unit) {
     case TimeUnit::Minutes: max_size_time = max_size_time * 60; break;
@@ -423,8 +428,12 @@ void start_jpeg_recording(
     g_signal_connect(filesink, "format-location", G_CALLBACK(generate_filename), tracker.release());
 
     // clang-format off
-    g_object_set(G_OBJECT(muxer), "timecodescale", 1, nullptr);
-    g_object_set(G_OBJECT(muxer), "offset-to-zero", true, nullptr);
+    g_object_set(
+        G_OBJECT(muxer), 
+        "timecodescale", 1, 
+        "offset-to-zero", true, 
+        nullptr
+    );
     g_object_set(
         G_OBJECT(filesink),
         "max-size-time", split ? max_size_time * GST_SECOND : 0,  // max-size-time=0 -> continuous
@@ -434,28 +443,24 @@ void start_jpeg_recording(
     );
     // clang-format on
 
-    gst_bin_add_many(GST_BIN(pipeline), queue_record, parser, filesink, nullptr);
+    gst_bin_add_many(GST_BIN(pipeline), queue, parser, filesink, nullptr);
 
-    if (!gst_element_link_many(queue_record, parser, filesink, nullptr)) {
+    if (!gst_element_link_many(queue, parser, filesink, nullptr)) {
         spdlog::error("Elements could not be linked.");
-        gst_object_unref(pipeline);
         return;
     }
 
-    gst_element_sync_state_with_parent(queue_record);
+    gst_element_sync_state_with_parent(queue);
     gst_element_sync_state_with_parent(parser);
     gst_element_sync_state_with_parent(filesink);
 
-    std::unique_ptr<GstPad, decltype(&gst_object_unref)> sink_pad(
-        gst_element_get_static_pad(queue_record, "sink"), gst_object_unref
-    );
-
-    auto ret = gst_pad_link(src_pad, sink_pad.get());
-    if (GST_PAD_LINK_FAILED(ret)) {
-        spdlog::error("Failed to link 'tee' src pad to 'queue' sink pad");
-        gst_object_unref(pipeline);
-        return;
+    auto queue_sinkpad = gst_element_get_static_pad(queue, "sink");
+    if (gst_pad_link(tee_srcpad, queue_sinkpad) != GST_PAD_LINK_OK) {
+        spdlog::error("Failed to link 'tee' srcpad to 'queue' sinkpad");
     }
+    gst_object_unref(queue_sinkpad);
+    gst_object_unref(tee);
+
     GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "after-link");
 }
 
@@ -465,56 +470,30 @@ void stop_jpeg_recording(GstPipeline *pipeline)
         spdlog::error("Pipeline is null");
         return;
     }
-    spdlog::info("Stop GStreamer M-JPEG recording");
+    spdlog::info("Stop M-JPEG recording");
 
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
-    auto src_pad = gst_element_get_static_pad(tee, "src_1");
-
-    // Increase the reference count so that 'pipeline' remains valid.
-    gst_object_ref(pipeline);
+    auto tee_srcpad = gst_element_get_static_pad(tee, "src_1");
 
     gst_pad_add_probe(
-        src_pad,
+        tee_srcpad,
         GST_PAD_PROBE_TYPE_IDLE,
-        [](GstPad *src_pad, GstPadProbeInfo *, gpointer user_data) -> GstPadProbeReturn {
+        [](GstPad *tee_srcpad,
+           [[maybe_unused]] GstPadProbeInfo *info,
+           gpointer user_data) -> GstPadProbeReturn {
             spdlog::info("Unlinking");
 
             auto pipeline = GST_PIPELINE(user_data);
             auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
-            std::unique_ptr<GstElement, decltype(&gst_object_unref)> queue_record(
-                gst_bin_get_by_name(GST_BIN(pipeline), "queue_record"), gst_object_unref
-            );
-            std::unique_ptr<GstElement, decltype(&gst_object_unref)> parser(
-                gst_bin_get_by_name(GST_BIN(pipeline), "record_parser"), gst_object_unref
-            );
-            std::unique_ptr<GstElement, decltype(&gst_object_unref)> filesink(
-                gst_bin_get_by_name(GST_BIN(pipeline), "filesink"), gst_object_unref
-            );
-            std::unique_ptr<GstPad, decltype(&gst_object_unref)> sink_pad(
-                gst_element_get_static_pad(queue_record.get(), "sink"), gst_object_unref
-            );
-            gst_pad_send_event(sink_pad.get(), gst_event_new_eos());
+            auto queue = gst_bin_get_by_name(GST_BIN(pipeline), "queue_record");
+            auto queue_sinkpad = gst_element_get_static_pad(queue, "sink");
 
-            // Launch a detached thread to remove the elements after a delay.
-            std::thread([pipeline,  // captured pipeline (ref'ed)
-                         queue_record = std::move(queue_record),
-                         parser = std::move(parser),
-                         filesink = std::move(filesink)]() {
-                std::this_thread::sleep_for(std::chrono::milliseconds(3500));
-                gst_bin_remove(GST_BIN(pipeline), queue_record.get());
-                gst_bin_remove(GST_BIN(pipeline), parser.get());
-                gst_bin_remove(GST_BIN(pipeline), filesink.get());
+            gst_pad_send_event(queue_sinkpad, gst_event_new_eos());
 
-                gst_element_set_state(queue_record.get(), GST_STATE_NULL);
-                gst_element_set_state(parser.get(), GST_STATE_NULL);
-                gst_element_set_state(filesink.get(), GST_STATE_NULL);
-
-                // Release the extra reference on the pipeline.
-                gst_object_unref(pipeline);
-            }).detach();
-
-            gst_element_release_request_pad(tee, src_pad);
-            gst_object_unref(src_pad);
+            gst_object_unref(tee_srcpad);
+            gst_object_unref(tee);
+            gst_object_unref(queue_sinkpad);
+            gst_object_unref(queue);
 
             return GST_PAD_PROBE_REMOVE;
         },

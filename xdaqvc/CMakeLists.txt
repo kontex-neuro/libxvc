@@ -44,6 +44,12 @@ target_compile_options(libxvc
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
         # $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
 )
+
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+    target_compile_options(libxvc PUBLIC -fsanitize=address,undefined)
+    target_link_options(libxvc PUBLIC -fsanitize=address,undefined)
+endif()
+
 target_link_libraries(libxvc 
     PUBLIC
         fmt::fmt

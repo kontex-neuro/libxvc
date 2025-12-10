@@ -43,9 +43,9 @@ public:
             }
         }
     };
-    enum class Codec { MJPEG, H265, H264 };
+    // enum class Codec { MJPEG, H265, H264 };
 
-    Camera(const int id = -1, const std::string &name = "");
+    Camera(const int id = -1, std::string_view name = "");
     ~Camera();
 
     // [[nodiscard]] static std::unique_ptr<Camera> parse(const json &event);
@@ -55,27 +55,27 @@ public:
     //     const std::chrono::milliseconds duration = 500ms
     // );
     [[nodiscard]] static std::vector<Camera *> cameras(
-        const std::chrono::milliseconds duration = 500ms
+        const std::chrono::milliseconds duration = 1s
     );
     [[nodiscard]] int id() const { return _id; }
     [[nodiscard]] unsigned short port() const { return _port; }
 
     [[nodiscard]] std::string name() const { return _name; }
-    void set_name(const std::string &name) { _name = name; }
+    void set_name(std::string_view name) { _name = name; }
 
     [[nodiscard]] std::vector<Cap> caps() const { return _caps; }
     void add_cap(const Cap &cap) { _caps.emplace_back(cap); }
 
-    [[nodiscard]] std::vector<Codec> codecs() const { return _codecs; }
-    void add_codec(const Codec &codec)
-    {
-        if (std::find(_codecs.begin(), _codecs.end(), codec) == _codecs.end()) {
-            _codecs.emplace_back(codec);
-        }
-    }
+    // [[nodiscard]] std::vector<Codec> codecs() const { return _codecs; }
+    // void add_codec(const Codec &codec)
+    // {
+    //     if (std::find(_codecs.begin(), _codecs.end(), codec) == _codecs.end()) {
+    //         _codecs.emplace_back(codec);
+    //     }
+    // }
 
-    [[nodiscard]] Codec stream_codec() const { return _stream_codec; }
-    void set_stream_codec(const Codec &codec) { _stream_codec = codec; }
+    // [[nodiscard]] Codec stream_codec() const { return _stream_codec; }
+    // void set_stream_codec(const Codec &codec) { _stream_codec = codec; }
 
     void start(const Cap &cap, std::chrono::milliseconds duration = 500ms);
     void stop(const std::chrono::milliseconds duration = 500ms);
@@ -89,8 +89,8 @@ private:
     std::string _name;
 
     std::vector<Cap> _caps;
-    std::vector<Codec> _codecs;
-    Codec _stream_codec;
+    // std::vector<Codec> _codecs;
+    // Codec _stream_codec;
 
     bool _test;
 };
