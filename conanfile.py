@@ -4,7 +4,7 @@ from conan.tools.cmake import CMakeToolchain, CMake, cmake_layout, CMakeDeps
 
 class libxvc(ConanFile):
     name = "libxvc"
-    version = "0.1.2"
+    version = "0.2.0"
     settings = "os", "compiler", "build_type", "arch"
     generators = "VirtualRunEnv"
     license = "LGPL-3.0-or-later"
