@@ -45,7 +45,7 @@ public:
     };
     // enum class Codec { MJPEG, H265, H264 };
 
-    Camera(const int id = -1, std::string_view name = "");
+    Camera(const int id = -1, std::string_view device_id = "", std::string_view name = "");
     ~Camera();
 
     // [[nodiscard]] static std::unique_ptr<Camera> parse(const json &event);
@@ -58,6 +58,7 @@ public:
         const std::chrono::milliseconds duration = 1s
     );
     [[nodiscard]] int id() const { return _id; }
+    [[nodiscard]] std::string device_id() const { return _device_id; }
     [[nodiscard]] unsigned short port() const { return _port; }
 
     [[nodiscard]] std::string name() const { return _name; }
@@ -85,6 +86,7 @@ public:
 
 private:
     int _id;
+    std::string _device_id;
     unsigned short _port;
     std::string _name;
 

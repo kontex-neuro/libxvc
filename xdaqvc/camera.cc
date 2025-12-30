@@ -70,18 +70,23 @@ void log(const cpr::Response &r, std::string_view action)
 
 }  // namespace
 
-Camera::Camera(const int id, std::string_view name) : _id(id), _name(name), _test(false)
+Camera::Camera(const int id, std::string_view device_id, std::string_view name)
+    : _id(id), _device_id(device_id), _name(name), _test(false)
 {
     if (auto port = pool.allocate_port()) {
         _port = port.value();
     }
-    spdlog::info("Creating camera id: {}, name: {}, port: {}", _id, _name, _port);
+    spdlog::info(
+        "Creating camera id: {}, device_id: {}, name: {}, port: {}", _id, _device_id, _name, _port
+    );
 }
 
 Camera::~Camera()
 {
     pool.release_port(_port);
-    spdlog::info("Deleting camera id: {}, name: {}, port: {}", _id, _name, _port);
+    spdlog::info(
+        "Deleting camera id: {}, device_id: {}, name: {}, port: {}", _id, _device_id, _name, _port
+    );
 }
 
 std::vector<Camera *> Camera::cameras(const std::chrono::milliseconds duration)
@@ -107,10 +112,11 @@ std::vector<Camera *> Camera::cameras(const std::chrono::milliseconds duration)
 Camera *Camera::parse(const json &camera_json)
 {
     auto const id = camera_json["id"].get<int>();
+    auto const device_id = camera_json["device_id"].get<std::string>();
     auto const name = camera_json["name"].get<std::string>();
     auto const caps_json = camera_json["caps"];
 
-    auto camera = new Camera(id, name);
+    auto camera = new Camera(id, device_id, name);
     // auto camera = std::make_unique<Camera>(
     //     camera_json["id"].get<int>(), camera_json["name"].get<std::string>()
     // );
