@@ -60,6 +60,8 @@ target_link_libraries(libxvc
         xdaqmetadata::xdaqmetadata
         Boost::boost
         OpenSSL::SSL
+        yaml-cpp::yaml-cpp
+        pugixml::pugixml
 )
 
 install(

@@ -27,6 +27,8 @@ find_package(xdaqmetadata REQUIRED)
 find_package(Boost 1.81.0 REQUIRED)
 find_package(CLI11 REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(pugixml REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_search_module(gstreamer REQUIRED IMPORTED_TARGET gstreamer-1.0>=1.4)
