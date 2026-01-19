@@ -484,14 +484,12 @@ void stop_jpeg_recording(GstPipeline *pipeline)
             spdlog::info("Unlinking");
 
             auto pipeline = GST_PIPELINE(user_data);
-            auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
             auto queue = gst_bin_get_by_name(GST_BIN(pipeline), "queue_record");
             auto queue_sinkpad = gst_element_get_static_pad(queue, "sink");
 
+            gst_pad_unlink(tee_srcpad, queue_sinkpad);
             gst_pad_send_event(queue_sinkpad, gst_event_new_eos());
 
-            gst_object_unref(tee_srcpad);
-            gst_object_unref(tee);
             gst_object_unref(queue_sinkpad);
             gst_object_unref(queue);
 
