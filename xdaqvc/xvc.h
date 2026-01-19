@@ -1,6 +1,6 @@
 #pragma once
 
-#define LIBXVC_API_VER "0.2.0"
+#define LIBXVC_API_VER "0.2.1"
 
 #include <gst/gstpipeline.h>
 
