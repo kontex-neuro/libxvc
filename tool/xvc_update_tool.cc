@@ -1,23 +1,23 @@
 #include <spdlog/spdlog.h>
 
 #include <CLI/CLI.hpp>
-#include <atomic>   // For std::atomic_bool
-#include <chrono>   // For unique_folder_name
-#include <csignal>  // For std::signal, SIGINT, SIGTERM
+#include <atomic>
+#include <chrono>
+#include <csignal>
 #include <cstdlib>
-#include <cstring>       // For strsignal (may need fallback for non-POSIX)
-#include <filesystem>    // Required for fs::path
-#include <string>        // Required for std::string
-#include <system_error>  // For std::error_code
+#include <cstring>
+#include <filesystem>
+#include <string>
+#include <system_error>
 #include <thread>
 
-#include "updater.h"  // Assuming this is in the include path correctly
+#include "updater.h"
 
 namespace fs = std::filesystem;
 
-// Global atomic flag for termination, initialized to false
+
 static std::atomic<bool> g_terminate_flag(false);
-// Function to print support contact information on failure
+
 void print_support_contact_info()
 {
     spdlog::critical("-------------------- SUPPORT --------------------");
@@ -27,7 +27,7 @@ void print_support_contact_info()
     spdlog::critical("-------------------------------------------------");
 }
 
-// Signal handler function
+
 void signal_handler(int signum)
 {
     std::string signal_name_str;
@@ -37,8 +37,7 @@ void signal_handler(int signum)
     default: signal_name_str = "Unknown signal"; break;
     }
 
-    if (g_terminate_flag.exchange(true
-        )) {  // exchange returns the PREVIOUS value and sets new value to true
+    if (g_terminate_flag.exchange(true)) {
         spdlog::critical(
             "Termination signal ({}, code {}) received again. Restoring default handler and "
             "re-raising signal for immediate exit.",
@@ -64,7 +63,7 @@ void signal_handler(int signum)
     }
 }
 
-// RAII guard for std::thread to ensure join() is called
+
 struct ThreadGuard {
     std::thread _thread;
 
@@ -93,24 +92,22 @@ public:
 
 int main(int argc, char *argv[])
 {
-    // Register signal handlers as early as possible
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
     std::string server_address = "192.168.177.100";
     int server_port = 8000;
-    int update_service_port = 8001;  // Default port for the update service on the device
+    int update_service_port = 8001;
 
-    std::string cloud_endpoint =
-        "https://xvc001.sgp1.digitaloceanspaces.com";  // Default cloud endpoint
+    std::string cloud_endpoint = "https://xvc001.sgp1.digitaloceanspaces.com";
     std::string update_dir_str = "updates";
 
     std::string force_api_version_str;
     std::string force_build_version_str;
 
     std::string calculate_hash_file;
-    bool get_local_versions_flag = false;        // Changed from get_server_version
-    bool skip_local_version_check_flag = false;  // New flag
+    bool get_local_versions_flag = false;
+    bool skip_local_version_check_flag = false;
 
     CLI::App app{"XVC Update Check and Download Tool"};
     app.add_option("-s,--server", server_address, "Device server address (IP or hostname)")
@@ -157,7 +154,7 @@ int main(int argc, char *argv[])
 
     CLI11_PARSE(app, argc, argv);
 
-    // Check for early termination request
+
     if (g_terminate_flag.load(std::memory_order_relaxed)) {
         spdlog::warn("Termination signal received during startup. Exiting.");
         print_support_contact_info();
@@ -188,7 +185,8 @@ int main(int argc, char *argv[])
         // Handle get-local-versions option
         if (get_local_versions_flag) {
             if (g_terminate_flag.load(std::memory_order_relaxed)) {
-                spdlog::warn("Termination signal received before fetching local versions. Exiting."
+                spdlog::warn(
+                    "Termination signal received before fetching local versions. Exiting."
                 );
                 print_support_contact_info();
                 return EXIT_FAILURE;
@@ -207,9 +205,6 @@ int main(int argc, char *argv[])
                     local_versions_opt->build_version.major == 0 &&
                     local_versions_opt->build_version.minor == 0 &&
                     local_versions_opt->build_version.patch == 0) {
-                    // This condition might indicate that the server returned default/uninitialized
-                    // versions, often the case if the endpoints are hit but the actual version info
-                    // isn't available or set.
                     spdlog::warn(
                         "Fetched local versions appear to be default/uninitialized (0.0.0)."
                     );
@@ -275,7 +270,8 @@ int main(int argc, char *argv[])
 
         // Check before creating directory
         if (g_terminate_flag.load(std::memory_order_relaxed)) {
-            spdlog::warn("Termination signal received before creating download directory. Exiting."
+            spdlog::warn(
+                "Termination signal received before creating download directory. Exiting."
             );
             print_support_contact_info();
             return EXIT_FAILURE;
@@ -294,25 +290,25 @@ int main(int argc, char *argv[])
         }
         spdlog::info("Using download directory: {}", download_directory.string());
 
-        xvc::UpdateOrchestrationResult result;  // Declare result object
+        xvc::UpdateOrchestrationResult result;
 
         if (g_terminate_flag.load(std::memory_order_relaxed)) {
             spdlog::warn("Termination signal received before update check/download. Exiting.");
             print_support_contact_info();
-            return EXIT_FAILURE;  // TempDirGuard will clean up created directory
+            return EXIT_FAILURE;
         }
 
         if (skip_local_version_check_flag) {
             spdlog::info("Mode: Skip Local Check & Force Download.");
             if (!force_api_v_opt) {
                 spdlog::error("--skip-local-check mode requires --force-api to be specified.");
-                // You could also check force_api_version_str.empty() before attempting to parse it,
-                // but this check post-parsing is also fine.
+
+
                 print_support_contact_info();
                 return EXIT_FAILURE;
             }
-            // If --force-api was given, force_api_v_opt will have a value.
-            // force_build_v_opt is std::optional as before.
+
+
 
             spdlog::info(
                 "Calling force_download_updates with API: {} and optional Build: {}",
@@ -340,13 +336,12 @@ int main(int argc, char *argv[])
                 device_server_base_url,
                 cloud_endpoint,
                 download_directory,
-                force_api_v_opt,   // Pass as optional
-                force_build_v_opt  // Pass as optional
+                force_api_v_opt,
+                force_build_v_opt
             );
         }
 
-        spdlog::info("-------------------- Operation Result --------------------"
-        );  // Changed from "Update Check Result"
+        spdlog::info("-------------------- Operation Result --------------------");
         spdlog::info("Success: {}", result.success);
         if (!result.error_message.empty()) {
             spdlog::error("Error Message: {}", result.error_message);
@@ -416,7 +411,7 @@ int main(int argc, char *argv[])
                     "Termination signal received before starting transfer process. Exiting."
                 );
                 print_support_contact_info();
-                return EXIT_FAILURE;  // TempDirGuard cleans up downloaded files
+                return EXIT_FAILURE;
             }
 
             // 1. Perform Handshake with the device's update service
@@ -484,7 +479,7 @@ int main(int argc, char *argv[])
                 update_service_port,
                 handshake_response.token,
                 package_filename,
-                package_hash,  // Using hash from metadata
+                package_hash,
                 package_size,
                 transfer_id
             );
@@ -516,7 +511,6 @@ int main(int argc, char *argv[])
                     "Termination signal received after starting log stream, before file transfer. "
                     "Exiting."
                 );
-                // log_stream_thread_guard destructor will join the thread.
                 print_support_contact_info();
                 return EXIT_FAILURE;
             }
@@ -555,10 +549,8 @@ int main(int argc, char *argv[])
                 "Waiting for server-side log streaming to complete for transfer ID: {}...",
                 transfer_id
             );
-            if (log_stream_thread_guard.joinable(
-                )) {  // Check if it's still joinable (it should be unless already joined/moved)
-                log_stream_thread_guard.join(
-                );  // Explicitly join, RAII guard also ensures it if this is missed.
+            if (log_stream_thread_guard.joinable()) {
+                log_stream_thread_guard.join();
             }
             spdlog::info("Server-side log streaming finished for transfer ID: {}.", transfer_id);
 
@@ -580,10 +572,11 @@ int main(int argc, char *argv[])
                 update_service_port
             );
 
-            spdlog::info("Update package delivered. Server-side processing logs have been streamed."
+            spdlog::info(
+                "Update package delivered. Server-side processing logs have been streamed."
             );
 
-            return EXIT_SUCCESS;  // Successful download AND transfer
+            return EXIT_SUCCESS;
 
         } else {
             // result.success is true, but !result.update_available_and_downloaded
@@ -603,33 +596,23 @@ int main(int argc, char *argv[])
                     result.error_message
                 );
             }
-            return EXIT_SUCCESS;  // Successful check, no update/transfer action taken or needed.
+            return EXIT_SUCCESS;
         }
-        // Note: All paths should now lead to an explicit EXIT_SUCCESS or EXIT_FAILURE within the
-        // above conditional blocks.
+
 
     } catch (const CLI::ParseError &e) {
-        // app.exit(e) already prints an error message.
-        // We'll print our support info after CLI11's message.
         int exit_code = app.exit(e);
         print_support_contact_info();
-        return exit_code;  // Or just return EXIT_FAILURE if preferred
+        return exit_code;
     } catch (const std::exception &e) {
         spdlog::error("Unhandled Standard Exception: {}", e.what());
         print_support_contact_info();
         return EXIT_FAILURE;
     } catch (const fs::filesystem_error &e) {
         spdlog::error(fmt::format("Unhandled Filesystem Error: {}", e.what()));
-        // The previous version of this catch block was specifically for temp directory creation.
-        // If this is intended to be a general filesystem error catch, the message is fine.
-        // If it's still specific to the temp dir: spdlog::error(fmt::format("Failed to create
-        // temporary download directory: {}", e.what()));
         print_support_contact_info();
         return EXIT_FAILURE;
-    }
-    // Adding a catch-all for any other unknown exceptions, though good practice is to catch
-    // specific types.
-    catch (...) {
+    } catch (...) {
         spdlog::error("An unknown error occurred.");
         print_support_contact_info();
         return EXIT_FAILURE;
