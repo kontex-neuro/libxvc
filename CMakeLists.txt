@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-set(libxvc_VERSION 0.3.0)
+set(libxvc_VERSION 0.2.1)
 
 project(libxvc
     LANGUAGES CXX

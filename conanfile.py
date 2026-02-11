@@ -12,7 +12,7 @@ class libxvc(ConanFile):
     description = "Thor Vision Video Capture library"
     options = {"build_testing": [True, False]}
     default_options = {"build_testing": False}
-    exports_sources = "CMakeLists.txt", "cmake/*", "xdaqvc/*", "tool/*", "test/*"
+    # exports_sources = "CMakeLists.txt", "cmake/*", "xdaqvc/*", "tool/*", "test/*"
 
     def build_requirements(self):
         self.tool_requires("cmake/[>=3.25.0 <3.30.0]")
@@ -23,7 +23,6 @@ class libxvc(ConanFile):
 
     def requirements(self):
         self.requires("boost/1.81.0")
-        self.requires("fmt/10.2.1")
         self.requires("spdlog/1.13.0")
         self.requires("nlohmann_json/3.11.3")
         self.requires("json-schema-validator/2.3.0")

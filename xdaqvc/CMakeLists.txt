@@ -58,11 +58,10 @@ target_link_libraries(xvc
         cpr::cpr
         spdlog::spdlog
         nlohmann_json::nlohmann_json
+        nlohmann_json_schema_validator
         PkgConfig::gstreamer
         xdaqmetadata::xdaqmetadata
         Boost::boost
-    PRIVATE
-        nlohmann_json_schema_validator
 )
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
