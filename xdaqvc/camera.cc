@@ -3,23 +3,27 @@
 #include <cpr/api.h>
 #include <spdlog/spdlog.h>
 
+#include <nlohmann/json.hpp>
 #include <string_view>
 
 #include "port_pool.h"
+#include "validator.h"
+
+using nlohmann::json;
 
 namespace
 {
-constexpr auto Cameras = "http://192.168.177.100:8000/cameras";
-constexpr auto MJPEG = "http://192.168.177.100:8000/jpeg";
-constexpr auto Test = "http://192.168.177.100:8000/test";
-constexpr auto H265 = "http://192.168.177.100:8000/h265";
-constexpr auto H264 = "http://192.168.177.100:8000/h264";
-constexpr auto Stop = "http://192.168.177.100:8000/stop";
+constexpr std::string_view URL = "http://192.168.177.100:8000";
+constexpr std::string_view CAMERAS = "/cameras";
+constexpr std::string_view MJPEG = "/jpeg";
+constexpr std::string_view H265 = "/h265";
+constexpr std::string_view H264 = "/h264";
+constexpr std::string_view STOP = "/stop";
 constexpr auto OK = 200;
 
 PortPool pool(9000, 9064);
 
-std::optional<json> get_json(std::string_view url, std::chrono::milliseconds timeout)
+std::optional<nlohmann::json> get_json(std::string_view url, std::chrono::milliseconds timeout)
 {
     if (url.empty()) {
         spdlog::error("GET attempted with empty URL");
@@ -29,13 +33,13 @@ std::optional<json> get_json(std::string_view url, std::chrono::milliseconds tim
     auto res = cpr::Get(cpr::Url{url}, cpr::Timeout{timeout});
     if (res.status_code != OK) {
         spdlog::warn(
-            "GET {} failed (status={}, error='{}')", url, res.status_code, res.error.message
+            "Failed to GET {} (status={}, error='{}')", url, res.status_code, res.error.message
         );
         return std::nullopt;
     }
 
     try {
-        return json::parse(res.text);
+        return nlohmann::json::parse(res.text);
     } catch (const std::exception &e) {
         spdlog::error("JSON parse error from {}: {}", url, e.what());
         return std::nullopt;
@@ -43,7 +47,7 @@ std::optional<json> get_json(std::string_view url, std::chrono::milliseconds tim
 };
 
 cpr::Response post_json(
-    std::string_view url, const json &payload, const std::chrono::milliseconds timeout
+    std::string_view url, const nlohmann::json &payload, std::chrono::milliseconds timeout
 )
 {
     if (url.empty()) {
@@ -68,112 +72,142 @@ void log(const cpr::Response &r, std::string_view action)
     }
 }
 
+constexpr std::string url(std::string_view endpoint) { return std::format("{}{}", URL, endpoint); }
+
 }  // namespace
 
-Camera::Camera(const int id, std::string_view device_id, std::string_view name)
-    : _id(id), _device_id(device_id), _name(name), _test(false)
+Camera::Camera(int id, std::string device_id, std::string name)
+    : _id(id), _device_id(std::move(device_id)), _name(std::move(name))
 {
-    if (auto port = pool.allocate_port()) {
-        _port = port.value();
+    auto port = pool.allocate();
+    if (!port) {
+        spdlog::error("Failed to allocate port for camera id: {}", _id);
+        throw std::runtime_error("Failed to allocate port for camera");
     }
-    spdlog::info(
+
+    _port = port.value();
+    spdlog::debug(
         "Creating camera id: {}, device_id: {}, name: {}, port: {}", _id, _device_id, _name, _port
     );
 }
 
 Camera::~Camera()
 {
-    pool.release_port(_port);
-    spdlog::info(
-        "Deleting camera id: {}, device_id: {}, name: {}, port: {}", _id, _device_id, _name, _port
-    );
+    if (pool.release(_port)) {
+        spdlog::debug(
+            "Deleting camera id: {}, device_id: {}, name: {}, port: {}",
+            _id,
+            _device_id,
+            _name,
+            _port
+        );
+    }
 }
 
-std::vector<Camera *> Camera::cameras(const std::chrono::milliseconds duration)
+std::unique_ptr<Camera> Camera::parse(std::string_view camera_json)
 {
-    std::vector<Camera *> cameras;
+    try {
+        auto json = json::parse(camera_json);
+        if (json.empty() || !json.is_object()) {
+            spdlog::error("Invalid camera JSON format");
+            return nullptr;
+        }
+        if (auto validated = validate_camera(json); !validated) {
+            spdlog::error("Camera JSON validation failed: {}", validated.error());
+            return nullptr;
+        }
 
-    auto data = get_json(Cameras, duration);
-    if (!data) {
+        auto camera = std::make_unique<Camera>(
+            json.at("id").get<int>(),
+            json.at("device_id").get<std::string>(),
+            json.at("name").get<std::string>()
+        );
+
+        for (const auto &cap_json : json.at("caps")) {
+            Camera::Cap cap{
+                .media_type = cap_json.at("media_type").get<std::string>(),
+                .format = cap_json.value("format", ""),
+                .width = cap_json.at("width").get<int>(),
+                .height = cap_json.at("height").get<int>()
+            };
+
+            const auto &framerate = cap_json.at("framerate").get<std::string>();
+            auto slash = framerate.find('/');
+            if (slash != std::string::npos) {
+                cap.fps_n = std::stoi(framerate.substr(0, slash));
+                cap.fps_d = std::stoi(framerate.substr(slash + 1));
+            }
+
+            if (cap.media_type == "image/jpeg") {
+                camera->add_cap(cap);
+            }
+        }
+        return camera;
+    } catch (const std::exception &e) {
+        spdlog::error("Exception parsing camera JSON: {}", e.what());
+        return nullptr;
+    }
+}
+
+std::vector<std::unique_ptr<Camera>> Camera::cameras(std::chrono::milliseconds duration)
+{
+    std::vector<std::unique_ptr<Camera>> cameras;
+
+    auto camera_json = get_json(url(CAMERAS), duration);
+    if (!camera_json || !camera_json->is_array()) {
+        spdlog::error("Invalid cameras format");
         return cameras;
     }
-    cameras.reserve(data->size());
+    cameras.reserve(camera_json->size());
 
-    for (const auto &cam_json : *data) {
-        if (auto cam = parse(cam_json)) {
-            cameras.emplace_back(cam);
+    for (const auto &json : *camera_json) {
+        if (auto validated = validate_camera(json); !validated) {
+            spdlog::error("Camera JSON validation failed: {}", validated.error());
+            continue;
+        }
+        if (auto cam = parse(json.dump())) {
+            cameras.emplace_back(std::move(cam));
         }
     }
-
     return cameras;
 }
 
-// std::unique_ptr<Camera> Camera::parse(const json &camera_json)
-Camera *Camera::parse(const json &camera_json)
+bool Camera::start(const Cap &cap, std::chrono::milliseconds duration)
 {
-    auto const id = camera_json["id"].get<int>();
-    auto const device_id = camera_json["device_id"].get<std::string>();
-    auto const name = camera_json["name"].get<std::string>();
-    auto const caps_json = camera_json["caps"];
+    const nlohmann::json payload{{"id", _id}, {"capability", cap.to_string()}, {"port", _port}};
 
-    auto camera = new Camera(id, device_id, name);
-    // auto camera = std::make_unique<Camera>(
-    //     camera_json["id"].get<int>(), camera_json["name"].get<std::string>()
-    // );
-
-    for (const auto &cap_json : caps_json) {
-        Camera::Cap cap{
-            .media_type = cap_json.at("media_type").get<std::string>(),
-            .format = cap_json.at("format").get<std::string>(),
-            .width = cap_json.at("width").get<int>(),
-            .height = cap_json.at("height").get<int>()
-        };
-
-        auto framerate_str = cap_json.at("framerate").get<std::string>();
-        auto delimiter_pos = framerate_str.find('/');
-        if (delimiter_pos != std::string::npos) {
-            cap.fps_n = std::stoi(framerate_str.substr(0, delimiter_pos));
-            cap.fps_d = std::stoi(framerate_str.substr(delimiter_pos + 1));
-        }
-
-        if (cap.media_type != "image/jpeg") {
-            continue;
-        }
-        camera->add_cap(cap);
-    }
-
-    return camera;
-}
-
-void Camera::start(const Cap &cap, const std::chrono::milliseconds duration)
-{
-    const json payload{{"id", _id}, {"capability", cap.to_string()}, {"port", _port}};
-
-    std::string_view url;
-
-    if (_test) {
-        url = Test;
-    } else if (cap.media_type == "image/jpeg") {
-        url = MJPEG;
+    std::string _url;
+    if (cap.media_type == "image/jpeg") {
+        _url = url(MJPEG);
     } else if (cap.media_type == "video/x-h265") {
-        url = H265;
+        _url = url(H265);
     } else if (cap.media_type == "video/x-h264") {
-        url = H264;
+        _url = url(H264);
     } else {
         spdlog::error("Unsupported codec for camera id: {}", _id);
-        return;
+        return false;
     }
 
-    auto res = post_json(url, payload, duration);
+    auto res = post_json(_url, payload, duration);
+    if (res.status_code != OK) {
+        log(res, std::format("Start camera id: {}", _id));
+        return false;
+    }
 
-    log(res, fmt::format("Start camera id: {}", _id));
+    log(res, std::format("Start camera id: {}", _id));
+    return true;
 }
 
-void Camera::stop(const std::chrono::milliseconds duration)
+bool Camera::stop(std::chrono::milliseconds duration)
 {
-    const json payload{{"id", _id}};
+    const nlohmann::json payload{{"id", _id}};
 
-    auto res = post_json(Stop, payload, duration);
+    auto res = post_json(url(STOP), payload, duration);
+    if (res.status_code != OK) {
+        log(res, std::format("Stop camera id: {}", _id));
+        return false;
+    }
 
-    log(res, fmt::format("Stop camera id: {}", _id));
+    log(res, std::format("Stop camera id: {}", _id));
+    return true;
 }

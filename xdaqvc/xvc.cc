@@ -1,39 +1,17 @@
 #include "xvc.h"
 
-#include <fmt/chrono.h>
-#include <fmt/core.h>
-#include <fmt/format.h>
-#include <glib-object.h>
-#include <glib.h>
-#include <glibconfig.h>
 #include <gst/gst.h>
-#include <gst/gstbin.h>
-#include <gst/gstbuffer.h>
-#include <gst/gstcaps.h>
-#include <gst/gstelement.h>
-#include <gst/gstelementfactory.h>
-#include <gst/gstevent.h>
-#include <gst/gstinfo.h>
-#include <gst/gstmeta.h>
-#include <gst/gstobject.h>
-#include <gst/gstpad.h>
-#include <gst/gstparse.h>
-#include <gst/gstpipeline.h>
-#include <gst/gststructure.h>
-#include <gst/gstutils.h>
-#include <gst/video/video-info.h>
 #include <spdlog/spdlog.h>
 
 #include <climits>
-#include <filesystem>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "xdaqmetadata/key_value_store.h"
 #include "xdaqmetadata/xdaqmetadata.h"
 
 using namespace std::chrono_literals;
+namespace fs = std::filesystem;
 
 namespace
 {
@@ -53,23 +31,17 @@ struct FileTracker {
     int max_files;
 };
 
-gchararray generate_filename(
-    [[maybe_unused]] GstElement *splitmux, [[maybe_unused]] guint fragment_id, gpointer udata
-)
+gchararray generate_filename(GstElement *, guint, gpointer udata)
 {
     auto tracker = static_cast<FileTracker *>(udata);
-    auto now = std::chrono::system_clock::now();
-    auto time_t_now = std::chrono::system_clock::to_time_t(now);
-    std::tm tm_now;
+    if (!tracker) {
+        spdlog::error("FileTracker is null");
+        return nullptr;
+    }
 
-#ifdef _WIN32
-    localtime_s(&tm_now, &time_t_now);
-#else
-    localtime_r(&time_t_now, &tm_now);
-#endif
-
-    auto timestamp = fmt::format("{:%Y-%m-%d_%H-%M-%S}", tm_now);
-    auto file_path = fmt::format("{}-{}.mkv", tracker->base_filepath, timestamp);
+    const auto &now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    const auto &timestamp = std::format("{:%Y-%m-%d_%H-%M-%S}", now);
+    const auto &file_path = std::format("{}-{}.mkv", tracker->base_filepath, timestamp);
 
     tracker->file_paths.emplace_back(file_path);
 
@@ -146,7 +118,7 @@ void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri)
     );
     // clang-format on
 
-    g_object_set(G_OBJECT(src), "uri", fmt::format("srt://{}", uri).c_str(), nullptr);
+    g_object_set(G_OBJECT(src), "uri", std::format("srt://{}", uri).c_str(), nullptr);
     g_object_set(G_OBJECT(cf_parser), "caps", cf_parser_caps.get(), nullptr);
     g_object_set(G_OBJECT(cf_dec), "caps", cf_dec_caps.get(), nullptr);
     g_object_set(G_OBJECT(cf_conv), "caps", cf_conv_caps.get(), nullptr);
@@ -207,7 +179,7 @@ void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri)
     );
     // clang-format on
 
-    g_object_set(G_OBJECT(src), "uri", fmt::format("srt://{}", uri).c_str(), nullptr);
+    g_object_set(G_OBJECT(src), "uri", std::format("srt://{}", uri).c_str(), nullptr);
     g_object_set(G_OBJECT(cf_conv), "caps", cf_conv_caps.get(), nullptr);
     g_object_set(G_OBJECT(appsink), "sync", false, nullptr);
     g_object_set(G_OBJECT(fpsdisplaysink), "video-sink", appsink, nullptr);
@@ -373,32 +345,17 @@ void stop_h265_recording(GstPipeline *pipeline)
     );
 }
 
-void start_jpeg_recording(
-    GstPipeline *pipeline, fs::path &filepath, bool split, int max_size_time, TimeUnit unit,
-    bool loop, int max_files
-)
+bool start_jpeg_recording(GstPipeline *pipeline, const RecordConfig &config)
 {
     if (!pipeline) {
         spdlog::error("Pipeline is null");
-        return;
+        return false;
     }
-    if (filepath.empty()) {
+    if (config._path.empty()) {
         spdlog::error("filepath is empty");
-        return;
+        return false;
     }
-
-    auto path = filepath.parent_path();
-    if (!fs::exists(path)) {
-        spdlog::info("Create Directory: {}", path.generic_string());
-        std::error_code ec;
-        if (!fs::create_directories(path, ec)) {
-            spdlog::info(
-                "Failed to create directory: {}. Error: {}", path.generic_string(), ec.message()
-            );
-        }
-    }
-
-    spdlog::info("Start M-JPEG recording");
+    spdlog::info("Starting M-JPEG recording ...");
 
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     if (auto exist_tee_srcpad = gst_element_get_static_pad(tee, "src_1")) {
@@ -413,19 +370,11 @@ void start_jpeg_recording(
     auto muxer = create_element("matroskamux", "muxer");
     auto filesink = create_element("splitmuxsink", "filesink");
 
-    switch (unit) {
-    case TimeUnit::Minutes: max_size_time = max_size_time * 60; break;
-    case TimeUnit::Hours: max_size_time = max_size_time * 60 * 60; break;
-    case TimeUnit::Days: max_size_time = max_size_time * 60 * 60 * 24; break;
-    default: break;
-    }
-
-    max_files = loop ? max_files : INT_MAX;
-
-    auto tracker =
-        std::make_unique<FileTracker>(FileTracker{filepath.generic_string(), {}, max_files});
-
-    g_signal_connect(filesink, "format-location", G_CALLBACK(generate_filename), tracker.release());
+    auto tracker = new FileTracker(config._path.generic_string(), {}, INT_MAX);
+    g_object_set_data_full(G_OBJECT(filesink), "file-tracker", tracker, [](gpointer data) {
+        delete static_cast<FileTracker *>(data);
+    });
+    g_signal_connect(filesink, "format-location", G_CALLBACK(generate_filename), tracker);
 
     // clang-format off
     g_object_set(
@@ -436,7 +385,7 @@ void start_jpeg_recording(
     );
     g_object_set(
         G_OBJECT(filesink),
-        "max-size-time", split ? max_size_time * GST_SECOND : 0,  // max-size-time=0 -> continuous
+        "max-size-time", config._split ? config._max_size_time.count() * GST_SECOND : 0,  // max-size-time=0 -> continuous
         "async-finalize", false,
         "muxer", muxer,
         nullptr
@@ -446,8 +395,8 @@ void start_jpeg_recording(
     gst_bin_add_many(GST_BIN(pipeline), queue, parser, filesink, nullptr);
 
     if (!gst_element_link_many(queue, parser, filesink, nullptr)) {
-        spdlog::error("Elements could not be linked.");
-        return;
+        spdlog::error("Elements could not be linked");
+        return false;
     }
 
     gst_element_sync_state_with_parent(queue);
@@ -457,23 +406,35 @@ void start_jpeg_recording(
     auto queue_sinkpad = gst_element_get_static_pad(queue, "sink");
     if (gst_pad_link(tee_srcpad, queue_sinkpad) != GST_PAD_LINK_OK) {
         spdlog::error("Failed to link 'tee' srcpad to 'queue' sinkpad");
+        return false;
     }
     gst_object_unref(queue_sinkpad);
     gst_object_unref(tee);
 
     GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "after-link");
+    return true;
 }
 
-void stop_jpeg_recording(GstPipeline *pipeline)
+bool stop_jpeg_recording(GstPipeline *pipeline)
 {
     if (!pipeline) {
         spdlog::error("Pipeline is null");
-        return;
+        return false;
     }
-    spdlog::info("Stop M-JPEG recording");
+    spdlog::info("Stopping M-JPEG recording ...");
 
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
+    if (!tee) {
+        spdlog::error("Failed to get 'tee' element from pipeline");
+        return false;
+    }
+
     auto tee_srcpad = gst_element_get_static_pad(tee, "src_1");
+    if (!tee_srcpad) {
+        spdlog::error("Failed to get 'tee' src_1 pad");
+        gst_object_unref(tee);
+        return false;
+    }
 
     gst_pad_add_probe(
         tee_srcpad,
@@ -481,7 +442,7 @@ void stop_jpeg_recording(GstPipeline *pipeline)
         [](GstPad *tee_srcpad,
            [[maybe_unused]] GstPadProbeInfo *info,
            gpointer user_data) -> GstPadProbeReturn {
-            spdlog::info("Unlinking");
+            spdlog::debug("Unlinking");
 
             auto pipeline = GST_PIPELINE(user_data);
             auto queue = gst_bin_get_by_name(GST_BIN(pipeline), "queue_record");
@@ -498,98 +459,10 @@ void stop_jpeg_recording(GstPipeline *pipeline)
         pipeline,
         nullptr
     );
-}
 
-void mock_camera(
-    GstPipeline *pipeline, [[maybe_unused]] const std::string &uri, const std::string &current_cap
-)
-{
-    spdlog::info("Setup GStreamer mock camera SRT Stream");
-
-    auto parser = [](const std::string &camera_cap) {
-        std::unordered_map<std::string, std::string> caps_map;
-        std::stringstream ss(camera_cap);
-        std::string token;
-
-        // "image/jpeg,width=640,height=480,framerate=601/1";
-        while (std::getline(ss, token, ',')) {
-            auto pos = token.find('=');
-            if (pos != std::string::npos) {
-                auto k = token.substr(0, pos);
-                auto v = token.substr(pos + 1);
-                caps_map[k] = v;
-            } else {
-                caps_map["media_type"] = token;
-            }
-        }
-        return caps_map;
-    };
-    std::unordered_map<std::string, std::string> caps_map = parser(current_cap);
-
-    // auto media_type = caps_map["media_type"];
-    auto width = std::stoi(caps_map["width"]);
-    auto height = std::stoi(caps_map["height"]);
-
-    std::stringstream ss(caps_map["framerate"]);
-    auto fps_n = 0, fps_d = 1;
-    char slash;
-    ss >> fps_n >> slash >> fps_d;
-
-    auto src = create_element("videotestsrc", "src");
-    auto cf_src = create_element("capsfilter", "cf_src");
-    auto tee = create_element("tee", "t");
-    auto queue_display = create_element("queue", "queue_display");
-
-    auto enc = create_element("jpegenc", "enc");
-    // auto dec = create_element("jpegdec", "dec");
-    auto fpsdisplaysink = create_element("fpsdisplaysink", "fpsdisplaysink");
-    auto appsink = create_element("appsink", "appsink");
-
-    // clang-format off
-    std::unique_ptr<GstCaps, decltype(&gst_caps_unref)> cf_src_caps(
-        gst_caps_new_simple(
-            "video/x-raw",
-            "format", G_TYPE_STRING, "RGB", 
-            "width", G_TYPE_INT, width,
-            "height", G_TYPE_INT, height,
-            "framerate", GST_TYPE_FRACTION, fps_n, fps_d,
-            nullptr
-        ),
-        gst_caps_unref
-    );
-    // clang-format on
-
-    g_object_set(G_OBJECT(src), "pattern", 18, nullptr);
-    g_object_set(G_OBJECT(src), "is-live", true, nullptr);
-    g_object_set(G_OBJECT(cf_src), "caps", cf_src_caps.get(), nullptr);
-    g_object_set(G_OBJECT(fpsdisplaysink), "video-sink", appsink, nullptr);
-    g_object_set(G_OBJECT(fpsdisplaysink), "sync", false, nullptr);
-    g_object_set(G_OBJECT(fpsdisplaysink), "text-overlay", false, nullptr);
-    g_object_set(G_OBJECT(appsink), "sync", false, nullptr);
-
-    gst_bin_add_many(
-        GST_BIN(pipeline), src, cf_src, enc, tee, queue_display, fpsdisplaysink, nullptr
-    );
-
-    if (!gst_element_link_many(src, cf_src, enc, tee, queue_display, fpsdisplaysink, nullptr)) {
-        spdlog::error("Elements could not be linked.");
-        gst_object_unref(pipeline);
-    }
-
-    // FPS watcher thread
-    // auto pipeline_name = gst_element_get_name(GST_ELEMENT(pipeline));
-
-    // std::thread([pipeline_name, fpsdisplaysink]() {
-    //     while (true) {
-    //         gchar *msg = nullptr;
-    //         g_object_get(G_OBJECT(fpsdisplaysink), "last-message", &msg, nullptr);
-    //         if (msg) {
-    //             spdlog::info("fps{}: {}", pipeline_name, msg);
-    //             g_free(msg);
-    //         }
-    //         std::this_thread::sleep_for(std::chrono::seconds(1));
-    //     }
-    // }).detach();
+    gst_object_unref(tee);
+    gst_object_unref(tee_srcpad);
+    return true;
 }
 
 void parse_video_save_binary_h265(const std::string &video_filepath)
@@ -603,7 +476,7 @@ void parse_video_save_binary_h265(const std::string &video_filepath)
 
     bin_store.openFile();
 
-    auto pipeline_str = fmt::format(
+    auto pipeline_str = std::format(
         "filesrc location=\"{}\" ! matroskademux ! h265parse name=h265parse ! video/x-h265, "
         "stream-format=byte-stream, alignment=au ! fakesink",
         video_filepath
@@ -689,7 +562,7 @@ void parse_video_save_binary_jpeg(const std::string &video_filepath)
 
     bin_store.openFile();
 
-    auto pipeline_str = fmt::format(
+    auto pipeline_str = std::format(
         "filesrc location=\"{}\" ! matroskademux ! jpegparse name=jpegparse ! fakesink",
         video_filepath
     );

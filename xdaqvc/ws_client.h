@@ -1,7 +1,5 @@
 #pragma once
 
-#define _WIN32_WINNT 0x0601
-
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -9,14 +7,12 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <string_view>
 #include <thread>
 
 namespace beast = boost::beast;          // from <boost/beast.hpp>
 namespace websocket = beast::websocket;  // from <boost/beast/websocket.hpp>
 namespace net = boost::asio;             // from <boost/asio.hpp>
 using tcp = boost::asio::ip::tcp;        // from <boost/asio/ip/tcp.hpp>
-using namespace std::chrono_literals;
 
 // Sends a WebSocket message and prints the response
 class session : public std::enable_shared_from_this<session>
@@ -26,13 +22,13 @@ class session : public std::enable_shared_from_this<session>
     beast::flat_buffer _buffer;
     std::string _host;
     std::string _port;
-    std::function<void(std::string_view)> _handler;
+    std::function<void(std::string)> _handler;
 
 public:
     // Resolver and socket require an io_context
     explicit session(
-        std::string_view host, std::string_view port, net::io_context &ioc,
-        std::function<void(std::string_view)> event_handler
+        std::string host, std::string port, net::io_context &ioc,
+        std::function<void(std::string)> handler
     );
 
     // Start the asynchronous operation
@@ -47,7 +43,7 @@ public:
     void close();
     void on_close(beast::error_code ec);
 
-    void reconnect(const std::chrono::milliseconds timeout = 500ms);
+    void reconnect(std::chrono::milliseconds timeout = std::chrono::milliseconds(500));
 };
 
 namespace xvc
@@ -57,8 +53,8 @@ class ws_client
 {
 public:
     ws_client(
-        std::string_view host = "192.168.177.100", std::string_view port = "8000",
-        std::function<void(std::string_view)> event_handler = nullptr
+        std::string host = "192.168.177.100", std::string port = "8000",
+        std::function<void(std::string)> handler = nullptr
     );
     ~ws_client();
 

@@ -3,6 +3,7 @@
 #include <CLI/CLI.hpp>
 #include <cstdlib>
 
+#include "common.h"
 #include "updater.h"
 
 int main(int argc, char *argv[])

@@ -1,18 +1,13 @@
-#include <fmt/core.h>
 #include <gst/app/gstappsink.h>
 #include <gst/gst.h>
-#include <gst/gstelement.h>
-#include <gst/gstobject.h>
-#include <gst/gstpad.h>
-#include <gst/gstpipeline.h>
 #include <gst/video/video-info.h>
-#include <spdlog/spdlog.h>
 
 #include <CLI/CLI.hpp>
 #include <csignal>
-#include <cstdlib>
 #include <filesystem>
+#include <print>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "camera.h"
@@ -20,16 +15,21 @@
 #include "xdaqmetadata/metadata_handler.h"
 #include "xvc.h"
 
+namespace fs = std::filesystem;
+
 namespace
 {
 
 GMainLoop *loop = nullptr;
 GstElement *pipeline = nullptr;
-MetadataHandler *handler = nullptr;
 bool record = false;
 
-Camera *stream_cam = nullptr;
-std::vector<Camera *> cams;
+std::unique_ptr<Camera> stream_cam = nullptr;
+std::unique_ptr<MetadataHandler> handler = nullptr;
+std::chrono::steady_clock::time_point stream_duration;
+
+enum class Codec : int { MJPEG };
+enum class TimeUnit : int { Seconds, Minutes, Hours, Days };
 
 GstFlowReturn draw_image(GstAppSink *sink, [[maybe_unused]] void *user_data)
 {
@@ -39,54 +39,59 @@ GstFlowReturn draw_image(GstAppSink *sink, [[maybe_unused]] void *user_data)
     if (!sample) return GST_FLOW_OK;
 
     auto buffer = gst_sample_get_buffer(sample.get());
-    GstMapInfo info;
-    if (gst_buffer_map(buffer, &info, GST_MAP_READ)) {
-        std::unique_ptr<GstVideoInfo, decltype(&gst_video_info_free)> video_info(
-            gst_video_info_new(), gst_video_info_free
-        );
-        if (!gst_video_info_from_caps(video_info.get(), gst_sample_get_caps(sample.get()))) {
-            spdlog::critical("Failed to parse video info");
-            gst_buffer_unmap(buffer, &info);
-            return GST_FLOW_ERROR;
-        }
-        auto caps = gst_sample_get_caps(sample.get());
-        auto structure = gst_caps_get_structure(caps, 0);
-        auto width = static_cast<int>(g_value_get_int(gst_structure_get_value(structure, "width")));
-        auto height =
-            static_cast<int>(g_value_get_int(gst_structure_get_value(structure, "height")));
-        auto buffer_pts = GST_BUFFER_PTS(buffer);
-
-        auto xdaqmetadata = handler->safe_deque.check_pts_pop_timestamp(buffer_pts);
-        auto metadata = xdaqmetadata.value_or(XDAQFrameData{0, 0, 0, 0, 0, 0});
-
-        spdlog::info(
-            "Received buffer: size={}, pts={}, width={}, height={}, "
-            "fpga_timestamp={}, rhythm_timestamp={}, ttl_in={}, ttl_out={}, spi_perf_counter={}, "
-            "reserved={}",
-            gst_buffer_get_size(buffer),
-            buffer_pts,
-            width,
-            height,
-            metadata.fpga_timestamp,
-            metadata.rhythm_timestamp,
-            metadata.ttl_in,
-            metadata.ttl_out,
-            metadata.spi_perf_counter,
-            metadata.reserved
-        );
-        gst_buffer_unmap(buffer, &info);
+    std::unique_ptr<GstVideoInfo, decltype(&gst_video_info_free)> video_info(
+        gst_video_info_new(), gst_video_info_free
+    );
+    if (!gst_video_info_from_caps(video_info.get(), gst_sample_get_caps(sample.get()))) {
+        std::println("Failed to parse video info");
+        return GST_FLOW_ERROR;
     }
+
+    const auto caps = gst_sample_get_caps(sample.get());
+    const auto structure = gst_caps_get_structure(caps, 0);
+    const auto width =
+        static_cast<int>(g_value_get_int(gst_structure_get_value(structure, "width")));
+    const auto height =
+        static_cast<int>(g_value_get_int(gst_structure_get_value(structure, "height")));
+    const auto buffer_pts = GST_BUFFER_PTS(buffer);
+
+    auto xdaqmetadata = handler->_safe_queue.dequeue(buffer_pts);
+    if (!xdaqmetadata) {
+        std::println("Failed to dequeue XDAQ metadata from buffer with PTS {}", buffer_pts);
+        return GST_FLOW_OK;
+    }
+
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - stream_duration).count();
+
+    auto hours = elapsed / 3600;
+    auto minutes = (elapsed % 3600) / 60;
+    auto seconds = elapsed % 60;
+
+    std::println(
+        "Received buffer: size={}, width={}, height={}, PTS={}, "
+        "fpga_timestamp={}, time={:02}:{:02}:{:02}",
+        gst_buffer_get_size(buffer),
+        width,
+        height,
+        buffer_pts,
+        xdaqmetadata->fpga_timestamp,
+        hours,
+        minutes,
+        seconds
+    );
+
     return GST_FLOW_OK;
 }
 
 void handle_sigint(int)
 {
-    spdlog::info("SIGINT received, stopping camera...");
-    if (stream_cam) {
-        stream_cam->stop();
-    }
+    std::println("SIGINT received, stopping stream...");
     if (record) {
         xvc::stop_jpeg_recording(GST_PIPELINE(pipeline));
+    }
+    if (stream_cam) {
+        stream_cam->stop();
     }
     if (pipeline) {
         gst_element_set_state(pipeline, GST_STATE_NULL);
@@ -94,7 +99,6 @@ void handle_sigint(int)
     if (loop) {
         g_main_loop_quit(loop);
     }
-    std::exit(EXIT_SUCCESS);
 }
 
 }  // namespace
@@ -106,24 +110,33 @@ int func(int argc, char *argv[])
 
     std::string host = "192.168.177.100";
     int id;
-    std::string cap, codec;
+    std::string gst_cap;
+    Codec codec{Codec::MJPEG};
+    // TODO
+    std::unordered_map<std::string, Codec> codec_map{{"mjpeg", Codec::MJPEG}};
 
-    std::string location = ".";
+    std::string location = "records";
     auto split = false;
-    auto max_size_time = 5;
-    auto max_files = 10;
-    auto test = false;
+    auto max_size_time = 10;
     std::string log_file;
-    std::string time_unit;
+    TimeUnit time_unit{TimeUnit::Seconds};
+    std::unordered_map<std::string, TimeUnit> time_unit_map = {
+        {"seconds", TimeUnit::Seconds},
+        {"minutes", TimeUnit::Minutes},
+        {"hours", TimeUnit::Hours},
+        {"days", TimeUnit::Days}
+    };
 
     auto stream = app.add_subcommand("stream", "Stream camera");
     stream->add_option("--host", host, "Host computer that connected cameras")
         ->default_val(host)
         ->group("Stream");
     stream->add_option("-i,--id", id, "Camera device ID")->required()->group("Stream");
-    stream->add_option("--cap", cap, "Camera capability")->required()->group("Stream");
-    stream->add_option("--codec", codec, "Camera codec")->required()->group("Stream");
-    stream->add_flag("-t,--test", test, "Enable test mode")->default_val(test)->group("Stream");
+    stream->add_option("--cap", gst_cap, "Camera capability")->required()->group("Stream");
+    stream->add_option("--codec", codec, "Camera codec")
+        ->required()
+        ->transform(CLI::CheckedTransformer(codec_map, CLI::ignore_case))
+        ->group("Stream");
 
     auto opt_record =
         stream->add_flag("-r,--record", record, "Whether to record stream")->group("Record");
@@ -135,24 +148,18 @@ int func(int argc, char *argv[])
                          ->group("Record");
     auto opt_max_size_time =
         stream
-            ->add_option("--max-size-time", max_size_time, "Max recording time per file (minutes)")
-            ->default_val(5)
+            ->add_option("--max-size-time", max_size_time, "Max recording time per file (seconds)")
+            ->default_val(10)
             ->group("Split");
     auto opt_time_unit =
         stream->add_option("--time-unit", time_unit, "Time unit for recording split size")
-            ->check(CLI::IsMember({"seconds", "minutes", "hours", "days"}))
-            ->default_val("minutes")
-            ->group("Split");
-    auto opt_max_files =
-        stream->add_option("--max-files", max_files, "Maximum number of files to keep")
-            ->default_val(10)
+            ->transform(CLI::CheckedTransformer(time_unit_map, CLI::ignore_case))
             ->group("Split");
 
     opt_location->needs(opt_record);
     opt_split->needs(opt_record);
     opt_max_size_time->needs(opt_split);
     opt_time_unit->needs(opt_split);
-    opt_max_files->needs(opt_split);
 
     auto list = app.add_subcommand("list", "List cameras");
     list->add_option("--host", host, "Host computer that connected cameras")->default_val(host);
@@ -166,86 +173,60 @@ int func(int argc, char *argv[])
     signal(SIGINT, handle_sigint);
     gst_init(&argc, &argv);
 
-    xvc::TimeUnit unit;
-
-    if (time_unit == "seconds")
-        unit = xvc::TimeUnit::Seconds;
-    else if (time_unit == "minutes")
-        unit = xvc::TimeUnit::Minutes;
-    else if (time_unit == "hours")
-        unit = xvc::TimeUnit::Hours;
-    else if (time_unit == "days")
-        unit = xvc::TimeUnit::Days;
-    else {
-        fmt::println("Invalid time unit specified.");
-        return EXIT_FAILURE;
-    }
-
     if (*stream) {
-        // TODO: support h264, h265
-        auto valid_codecs = {"jpeg"};
-        if (std::find(valid_codecs.begin(), valid_codecs.end(), codec) == valid_codecs.end()) {
-            fmt::println("Invalid codec. Valid options is: jpeg.");
-            return EXIT_FAILURE;
-        }
-
-        if (!test) {
-            cams = Camera::cameras();
-            for (auto cam : cams) {
-                if (id == cam->id()) {
-                    stream_cam = cam;
-                    break;
-                }
-            }
-            if (!stream_cam) {
-                fmt::println("Error: no camera with id = {}", id);
-                return EXIT_FAILURE;
-            }
-
-            auto caps = stream_cam->caps();
-            auto it = std::find_if(caps.begin(), caps.end(), [cap](const Camera::Cap &_cap) {
-                return _cap.to_string() == cap;
-            });
-            if (it == caps.end()) {
-                fmt::println("Error: Camera {} does not support cap '{}'", id, cap);
-                return EXIT_FAILURE;
-            }
-            stream_cam->set_test(test);
-            stream_cam->start(*it);
-        } else {
-            stream_cam = new Camera(id, "test");
-            stream_cam->set_test(test);
-            stream_cam->start(Camera::Cap{
-                .media_type = "image/jpeg",
-                .width = 1920,
-                .height = 1080,
-                .fps_n = 30,
-            });
-        }
-
-        auto uri = fmt::format("{}:{}", host, stream_cam->port());
-        auto record_path = std::filesystem::current_path();
-        auto filepath = record_path / fmt::format("{}-{}", stream_cam->name(), stream_cam->id());
-
-        if (location != ".") {
-            record_path = fs::path(location);
-            if (!fs::exists(record_path)) {
-                fmt::println("Error: specified location path '{}' does not exist.", location);
-                return EXIT_FAILURE;
-            }
-        }
-
-        handler = new MetadataHandler();
-        pipeline = gst_pipeline_new(codec.c_str());
+        handler = std::make_unique<MetadataHandler>();
+        pipeline = gst_pipeline_new(nullptr);
         loop = g_main_loop_new(nullptr, false);
+        stream_duration = std::chrono::steady_clock::now();
 
-        if (codec == "jpeg") {
-            xvc::setup_jpeg_srt_stream(GST_PIPELINE(pipeline), uri);
-            if (record) {
-                xvc::start_jpeg_recording(
-                    GST_PIPELINE(pipeline), filepath, !split, max_size_time, unit, max_files
-                );
+        for (auto &camera : Camera::cameras()) {
+            if (id == camera->id()) {
+                stream_cam = std::move(camera);
+                break;
             }
+        }
+        if (!stream_cam) {
+            std::println("Error: no camera with id = {}", id);
+            return -1;
+        }
+
+        auto caps = stream_cam->caps();
+        auto it = std::find_if(caps.begin(), caps.end(), [gst_cap](const Camera::Cap &_cap) {
+            return _cap.to_string() == gst_cap;
+        });
+        if (it == caps.end()) {
+            std::println("Error: Camera {} does not support cap '{}'", id, gst_cap);
+            return -1;
+        }
+        stream_cam->start(*it);
+
+        std::chrono::seconds duration;
+        switch (time_unit) {
+        case TimeUnit::Seconds: duration = std::chrono::seconds(max_size_time); break;
+        case TimeUnit::Minutes: duration = std::chrono::minutes(max_size_time); break;
+        case TimeUnit::Hours: duration = std::chrono::hours(max_size_time); break;
+        case TimeUnit::Days: duration = std::chrono::days(max_size_time); break;
+        default: std::println("Invalid time unit specified."); return -1;
+        }
+
+        auto uri = std::format("{}:{}", host, stream_cam->port());
+
+        if (codec == Codec::MJPEG) {
+            xvc::setup_jpeg_srt_stream(GST_PIPELINE(pipeline), uri);
+        }
+
+        if (record) {
+            const auto &base = (location == "records") ? fs::path("records") : fs::path(location);
+            std::error_code ec;
+            if (!fs::exists(base) && !fs::create_directories(base, ec)) {
+                std::println(
+                    "Error: cannot create directory '{}': {}", base.string(), ec.message()
+                );
+                return -1;
+            }
+            auto filepath = base / stream_cam->name();
+            xvc::RecordConfig config(filepath, split, duration);
+            xvc::start_jpeg_recording(GST_PIPELINE(pipeline), config);
         }
 
         auto parser = gst_bin_get_by_name(GST_BIN(pipeline), "parser");
@@ -253,54 +234,50 @@ int func(int argc, char *argv[])
             gst_element_get_static_pad(parser, "src"), gst_object_unref
         );
         gst_pad_add_probe(
-            src_pad.get(), GST_PAD_PROBE_TYPE_BUFFER, parse_jpeg_metadata, handler, nullptr
+            src_pad.get(), GST_PAD_PROBE_TYPE_BUFFER, parse_jpeg_metadata, handler.get(), nullptr
         );
 
         GstAppSinkCallbacks callbacks = {nullptr, nullptr, draw_image, nullptr, nullptr, {nullptr}};
         auto appsink = gst_bin_get_by_name(GST_BIN(pipeline), "appsink");
         gst_app_sink_set_callbacks(GST_APP_SINK(appsink), &callbacks, nullptr, nullptr);
 
-        auto ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
-        if (ret == GST_STATE_CHANGE_FAILURE) {
-            spdlog::error("Unable to set the pipeline to the playing state");
-            return EXIT_FAILURE;
+        if (gst_element_set_state(pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+            std::println("Unable to set the pipeline to the playing state");
+            return -1;
         }
 
-        auto _thread = std::jthread([]() {
-            spdlog::debug("Run GStreamer stream thread");
-            g_main_loop_run(loop);
-            spdlog::debug("Quit GStreamer stream thread");
-            delete stream_cam;
-            delete handler;
-            stream_cam = nullptr;
-            handler = nullptr;
-        });
+        g_main_loop_run(loop);
+
+        if (pipeline) {
+            gst_element_set_state(pipeline, GST_STATE_NULL);
+        }
+        stream_cam.reset();
+        handler.reset();
     }
 
     if (*list) {
-        cams = Camera::cameras();
-        fmt::println("Discovered Cameras:");
+        std::println("Discovered Cameras:");
+        for (const auto &camera : Camera::cameras()) {
+            std::println("");
+            std::println("Camera ID   : {}", camera->id());
+            std::println("Device ID   : {}", camera->device_id());
+            std::println("Name        : {}", camera->name());
 
-        for (auto cam : cams) {
-            fmt::println("");
-            fmt::println("Camera ID    : {}", cam->id());
-            fmt::println("Name         : {}", cam->name());
-            fmt::println("Capabilities :");
-
-            for (auto cap : cam->caps()) {
-                fmt::println("  - {}", cap.to_string());
+            std::println("Capabilities:");
+            for (const auto &cap : camera->caps()) {
+                std::println("  - {}", cap.to_string());
             }
         }
     }
 
     if (*logs) {
-        auto server = xvc::Server(host);
-        auto logs = log_file.empty() ? server.logs() : server.logs(log_file);
-
-        fmt::println("{}", logs);
+        auto server = xvc::Server();
+        if (auto logs = log_file.empty() ? server.logs() : server.logs(log_file)) {
+            std::println("{}", logs.value());
+        }
     }
 
-    return EXIT_SUCCESS;
+    return 0;
 }
 
 int main(int argc, char *argv[])

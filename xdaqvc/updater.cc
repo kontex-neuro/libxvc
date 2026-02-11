@@ -6,44 +6,15 @@
 
 #include <fstream>
 #include <nlohmann/json.hpp>
-#include <regex>
 #include <thread>
 
 
 using namespace std::chrono_literals;
-
+namespace fs = std::filesystem;
 
 namespace
 {
 auto constexpr OK = 200;
-
-// size_t write_data(void *ptr, size_t size, size_t nmemb, FILE *stream)
-// {
-//     return fwrite(ptr, size, nmemb, stream);
-// }
-
-// std::string bytes_to_hex(const unsigned char *bytes, size_t len)
-// {
-//     std::stringstream ss;
-//     ss << std::hex << std::setfill('0');
-//     for (size_t i = 0; i < len; i++) {
-//         ss << std::setw(2) << static_cast<int>(bytes[i]);
-//     }
-//     return ss.str();
-// }
-
-// bool handle_response(const cpr::Response &response)
-// {
-//     if (response.status_code == OK) {
-//         auto json_response = nlohmann::json::parse(response.text);
-//         return json_response["status"] == "success";
-//     }
-
-//     spdlog::error(
-//         "File transfer failed with status code: {} ({})", response.status_code, response.text
-//     );
-//     return false;
-// }
 }  // namespace
 
 
@@ -648,42 +619,4 @@ UpdateResult update_server(
     }
 }
 
-bool Version::operator==(const Version &other) const
-{
-    return major == other.major && minor == other.minor && patch == other.patch;
-}
-
-bool Version::operator>(const Version &other) const { return !(*this < other || *this == other); }
-
-bool Version::operator<(const Version &other) const
-{
-    if (major != other.major) return major < other.major;
-    if (minor != other.minor) return minor < other.minor;
-    return patch < other.patch;
-}
-
-bool Version::operator>=(const Version &other) const { return !(*this < other); }
-
-bool Version::operator<=(const Version &other) const { return (*this < other) || (*this == other); }
-
-std::optional<Version> Version::from_string(const std::string &version_str)
-{
-    try {
-        std::regex version_regex(R"((\d+)\.(\d+)\.(\d+))");
-        std::smatch matches;
-
-        if (std::regex_match(version_str, matches, version_regex)) {
-            return Version{
-                std::stoi(matches[1].str()),
-                std::stoi(matches[2].str()),
-                std::stoi(matches[3].str())
-            };
-        }
-        return std::nullopt;
-    } catch (...) {
-        return std::nullopt;
-    }
-}
-
-std::string Version::to_string() const { return fmt::format("{}.{}.{}", major, minor, patch); }
 }  // namespace xvc

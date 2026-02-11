@@ -7,8 +7,7 @@
 #include <string>
 #include <vector>
 
-
-namespace fs = std::filesystem;
+#include "common.h"
 
 
 namespace xvc
@@ -17,23 +16,6 @@ namespace xvc
 struct DownloadResult {
     bool success;
     std::string error_message;
-};
-
-class Version
-{
-public:
-    int major;
-    int minor;
-    int patch;
-
-    bool operator==(const Version &other) const;
-    bool operator>(const Version &other) const;
-    bool operator<(const Version &other) const;
-    bool operator>=(const Version &other) const;
-    bool operator<=(const Version &other) const;
-
-    static std::optional<Version> from_string(const std::string &version_str);
-    std::string to_string() const;
 };
 
 struct HandshakeResponse {
@@ -76,7 +58,7 @@ DownloadResult download_and_verify(
     const std::filesystem::path &output_path
 );
 
-std::optional<std::string> calculate_sha256(const fs::path &filepath);
+std::optional<std::string> calculate_sha256(const std::filesystem::path &filepath);
 
 HandshakeResponse perform_handshake(const std::string &server_address, int port);
 
@@ -88,7 +70,7 @@ bool prepare_file_transfer(
 
 bool transfer_file(
     const std::string &server_address, int port, const std::string &token,
-    const fs::path &file_path, const std::string &transfer_id,
+    const std::filesystem::path &file_path, const std::string &transfer_id,
     std::function<void(const FileTransferProgress &)> progress_callback = nullptr
 );
 
@@ -103,8 +85,9 @@ UpdateResult update_server(
     const std::string &server_address,
     int server_port,         // Port of the server to be updated
     int update_server_port,  // Port of the update server
-    const std::string &table_url, const fs::path &update_dir, const Version &client_version,
-    bool skip_version_check = false, const std::optional<Version> &force_version = std::nullopt
+    const std::string &table_url, const std::filesystem::path &update_dir,
+    const Version &client_version, bool skip_version_check = false,
+    const std::optional<Version> &force_version = std::nullopt
 );
 
 }  // namespace xvc

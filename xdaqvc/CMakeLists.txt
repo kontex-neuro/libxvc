@@ -1,69 +1,73 @@
-add_library(libxvc STATIC)
+add_library(xvc STATIC)
 
-set(XVC_SOURCES
+set(sources
     xvc.cc
     camera.cc
     port_pool.cc
     ws_client.cc
     server.cc
-    updater.cc
+    validator.cc
 )
-set(XVC_HEADERS
+set(headers
     xvc.h
     camera.h
     port_pool.h
     ws_client.h
     server.h
-    updater.h
+    validator.h
+    common.h
 )
 
-target_sources(libxvc
+target_sources(xvc
     PRIVATE
-        "${XVC_SOURCES}"
+        "${sources}"
     PUBLIC 
         FILE_SET "public_headers"
         TYPE "HEADERS"
-        FILES "${XVC_HEADERS}"
+        FILES "${headers}"
 )
-target_include_directories(libxvc
+target_include_directories(xvc
     INTERFACE
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
         "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
-set_target_properties(libxvc PROPERTIES 
+set_target_properties(xvc PROPERTIES 
     VERSION "${libxvc_VERSION}"
     SOVERSION "${PROJECT_VERSION_MAJOR}"
     POSITION_INDEPENDENT_CODE ON
 )
 
-target_compile_features(libxvc PUBLIC cxx_std_20)
-target_compile_options(libxvc
+target_compile_features(xvc PUBLIC cxx_std_23)
+target_compile_options(xvc
     PRIVATE
         $<$<CXX_COMPILER_ID:MSVC>:/W4>
-        # $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
-        # $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
 )
 
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
-    target_compile_options(libxvc PUBLIC -fsanitize=address,undefined)
-    target_link_options(libxvc PUBLIC -fsanitize=address,undefined)
+    target_compile_options(xvc PUBLIC -fsanitize=address,undefined)
+    target_link_options(xvc PUBLIC -fsanitize=address,undefined)
+    # target_compile_options(xvc PUBLIC -fsanitize=thread)
+    # target_link_options(xvc PUBLIC -fsanitize=thread)
 endif()
 
-target_link_libraries(libxvc 
+target_link_libraries(xvc 
     PUBLIC
-        fmt::fmt
         cpr::cpr
         spdlog::spdlog
         nlohmann_json::nlohmann_json
+        nlohmann_json_schema_validator
         PkgConfig::gstreamer
         xdaqmetadata::xdaqmetadata
         Boost::boost
-        OpenSSL::SSL
 )
 
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "default install path" FORCE)
+endif()
+
 install(
-    TARGETS libxvc
+    TARGETS xvc
     EXPORT libxvc-targets
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
@@ -80,4 +84,28 @@ export(
     EXPORT libxvc-targets 
     FILE libxvc-config.cmake
     NAMESPACE libxvc::
+)
+
+add_library(updater STATIC)
+
+target_sources(updater
+    PRIVATE
+        updater.cc
+    PUBLIC 
+        FILE_SET "public_headers"
+        TYPE "HEADERS"
+        FILES updater.h
+)
+target_compile_features(updater PUBLIC cxx_std_23)
+target_compile_options(updater
+    PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+)
+target_link_libraries(updater 
+    PUBLIC
+        cpr::cpr
+        spdlog::spdlog
+        nlohmann_json::nlohmann_json
+        OpenSSL::SSL
 )

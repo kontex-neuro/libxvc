@@ -25,6 +25,7 @@ class libxvc(ConanFile):
         self.requires("fmt/10.2.1")
         self.requires("spdlog/1.13.0")
         self.requires("nlohmann_json/3.11.3")
+        self.requires("json-schema-validator/2.3.0")
         self.requires("cpr/1.10.5")
         self.requires("xdaqmetadata/0.1.1")
         self.requires("openssl/3.4.1")
@@ -95,4 +96,4 @@ class libxvc(ConanFile):
         cmake.install()
 
     def package_info(self):
-        self.cpp_info.libs = ["libxvc"]
+        self.cpp_info.libs = ["xvc"]

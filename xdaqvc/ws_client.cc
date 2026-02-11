@@ -2,6 +2,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <format>
+
 namespace http = beast::http;  // from <boost/beast/http.hpp>
 
 // Report a failure
@@ -11,14 +13,14 @@ void fail(beast::error_code ec, std::string_view what)
 }
 
 session::session(
-    std::string_view host, std::string_view port, net::io_context &ioc,
-    std::function<void(std::string_view)> event_handler
+    std::string host, std::string port, net::io_context &ioc,
+    std::function<void(std::string)> handler
 )
     : _resolver(net::make_strand(ioc)),
       _ws(net::make_strand(ioc)),
-      _host(host),
-      _port(port),
-      _handler(std::move(event_handler))
+      _host(std::move(host)),
+      _port(std::move(port)),
+      _handler(std::move(handler))
 {
 }
 
@@ -69,7 +71,7 @@ void session::on_connect(beast::error_code ec, tcp::resolver::results_type::endp
     // Update the _host string. This will provide the value of the
     // Host HTTP header during the WebSocket handshake.
     // See https://tools.ietf.org/html/rfc7230#section-5.4
-    _host = fmt::format("{}:{}", _host, ep.port());
+    _host = std::format("{}:{}", _host, ep.port());
 
     // Perform the websocket handshake
     _ws.async_handshake(
@@ -125,7 +127,7 @@ void session::on_close(beast::error_code ec)
     spdlog::debug("WebSocket closed gracefully");
 }
 
-void session::reconnect(const std::chrono::milliseconds timeout)
+void session::reconnect(std::chrono::milliseconds timeout)
 {
     spdlog::debug("session has been disconnected, trying to reconnect...");
 
@@ -142,17 +144,11 @@ void session::reconnect(const std::chrono::milliseconds timeout)
 namespace xvc
 {
 
-ws_client::ws_client(
-    std::string_view host, std::string_view port,
-    std::function<void(std::string_view)> event_handler
-)
+ws_client::ws_client(std::string host, std::string port, std::function<void(std::string)> handler)
 {
     // Launch the asynchronous operation
-    auto _session = std::make_shared<session>(
-        host, port, _ioc, [handler = std::move(event_handler)](std::string_view event) {
-            handler(event);
-        }
-    );
+    auto _session =
+        std::make_shared<session>(std::move(host), std::move(port), _ioc, std::move(handler));
     _session->run();
 
     _thread = std::jthread([&]() {
