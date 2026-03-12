@@ -18,6 +18,7 @@ target_link_libraries(xvc_update_tool
     PRIVATE
         updater
         CLI11::CLI11
+        spdlog::spdlog
 )
 target_compile_features(xvc_update_tool PRIVATE cxx_std_23)
 target_compile_options(xvc_update_tool

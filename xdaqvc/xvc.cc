@@ -357,6 +357,12 @@ bool start_jpeg_recording(GstPipeline *pipeline, const RecordConfig &config)
     }
     spdlog::info("Starting M-JPEG recording ...");
 
+    const auto &location = config._path.generic_string();
+    const auto split = config._split;
+    const auto max_size_time = config._max_size_time;
+
+    spdlog::info("max_size_time = {}", max_size_time.count());
+
     auto tee = gst_bin_get_by_name(GST_BIN(pipeline), "t");
     if (auto exist_tee_srcpad = gst_element_get_static_pad(tee, "src_1")) {
         spdlog::warn("tee 'src_1' pad already exists, releasing it...");
@@ -370,7 +376,7 @@ bool start_jpeg_recording(GstPipeline *pipeline, const RecordConfig &config)
     auto muxer = create_element("matroskamux", "muxer");
     auto filesink = create_element("splitmuxsink", "filesink");
 
-    auto tracker = new FileTracker(config._path.generic_string(), {}, INT_MAX);
+    auto tracker = new FileTracker(location, {}, INT_MAX);
     g_object_set_data_full(G_OBJECT(filesink), "file-tracker", tracker, [](gpointer data) {
         delete static_cast<FileTracker *>(data);
     });
@@ -385,7 +391,7 @@ bool start_jpeg_recording(GstPipeline *pipeline, const RecordConfig &config)
     );
     g_object_set(
         G_OBJECT(filesink),
-        "max-size-time", config._split ? config._max_size_time.count() * GST_SECOND : 0,  // max-size-time=0 -> continuous
+        "max-size-time", split ? max_size_time.count() * GST_SECOND : 0,  // max-size-time=0 -> continuous
         "async-finalize", false,
         "muxer", muxer,
         nullptr

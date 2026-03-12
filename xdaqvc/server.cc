@@ -23,7 +23,7 @@ bool Server::root(std::chrono::milliseconds timeout) const
 {
     auto response = cpr::Get(cpr::Url{_base_url}, cpr::Timeout{timeout});
     if (response.status_code != OK) {
-        spdlog::error("Failed to fetch {}. Status: {}", _base_url, response.status_code);
+        spdlog::debug("Failed to fetch {} Status: {}", _base_url, response.status_code);
         return false;
     }
     return true;
@@ -39,7 +39,7 @@ std::optional<std::string> Server::logs(
 
     auto response = cpr::Get(cpr::Url{url}, cpr::Timeout{timeout});
     if (response.status_code != OK) {
-        spdlog::error("Failed to fetch {}. Status: {}", url, response.status_code);
+        spdlog::debug("Failed to fetch {} Status: {}", url, response.status_code);
         return std::nullopt;
     }
     return logs ? nlohmann::json::parse(response.text).dump(2) : response.text;
@@ -51,7 +51,7 @@ std::optional<Version> Server::api_version(std::chrono::milliseconds timeout) co
 
     auto response = cpr::Get(cpr::Url{url}, cpr::Timeout{timeout});
     if (response.status_code != OK) {
-        spdlog::error("Failed to fetch {}. Status: {}", url, response.status_code);
+        spdlog::debug("Failed to fetch {} Status: {}", url, response.status_code);
         return std::nullopt;
     }
 

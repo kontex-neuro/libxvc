@@ -55,13 +55,15 @@ endif()
 
 target_link_libraries(xvc 
     PUBLIC
+        Boost::boost
+        # TODO:
+        xdaqmetadata::xdaqmetadata
+    PRIVATE
         cpr::cpr
         spdlog::spdlog
         nlohmann_json::nlohmann_json
         nlohmann_json_schema_validator
         PkgConfig::gstreamer
-        xdaqmetadata::xdaqmetadata
-        Boost::boost
 )
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
@@ -105,7 +107,7 @@ target_compile_options(updater
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
 )
 target_link_libraries(updater 
-    PUBLIC
+    PRIVATE
         cpr::cpr
         spdlog::spdlog
         nlohmann_json::nlohmann_json
