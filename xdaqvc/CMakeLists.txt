@@ -45,10 +45,12 @@ target_compile_options(xvc
 )
 
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
-    target_compile_options(xvc PUBLIC -fsanitize=address,undefined)
-    target_link_options(xvc PUBLIC -fsanitize=address,undefined)
-    # target_compile_options(xvc PUBLIC -fsanitize=thread)
-    # target_link_options(xvc PUBLIC -fsanitize=thread)
+    if(MSVC)
+        message(STATUS "MSVC Debug not set ASAN options")
+    else()
+        target_compile_options(libxvc PUBLIC -fsanitize=address,undefined)
+        target_link_options(libxvc PUBLIC -fsanitize=address,undefined)
+    endif()
 endif()
 
 target_link_libraries(xvc 
