@@ -176,9 +176,45 @@ bool Camera::start(const Cap &cap, std::chrono::milliseconds duration)
 {
     const nlohmann::json payload{{"id", _id}, {"capability", cap.to_string()}, {"port", _port}};
 
-    std::string _url;
-    if (cap.media_type == "image/jpeg") {
-        _url = url(MJPEG);
+    auto camera = new Camera(id, name);
+    // auto camera = std::make_unique<Camera>(
+    //     camera_json["id"].get<int>(), camera_json["name"].get<std::string>()
+    // );
+
+    for (const auto &cap_json : caps_json) {
+        Camera::Cap cap{
+            .media_type = cap_json.at("media_type").get<std::string>(),
+            .format = cap_json.at("format").get<std::string>(),
+            .width = cap_json.at("width").get<int>(),
+            .height = cap_json.at("height").get<int>()
+        };
+
+        auto framerate_str = cap_json.at("framerate").get<std::string>();
+        auto delimiter_pos = framerate_str.find('/');
+        if (delimiter_pos != std::string::npos) {
+            cap.fps_n = std::stoi(framerate_str.substr(0, delimiter_pos));
+            cap.fps_d = std::stoi(framerate_str.substr(delimiter_pos + 1));
+        }
+
+        if (cap.media_type != "image/jpeg" && cap.media_type != "video/x-h265") {
+            continue;
+        }
+        camera->add_cap(cap);
+    }
+
+    return camera;
+}
+
+void Camera::start(const Cap &cap, const std::chrono::milliseconds duration)
+{
+    const json payload{{"id", _id}, {"capability", cap.to_string()}, {"port", _port}};
+
+    std::string_view url;
+
+    if (_test) {
+        url = Test;
+    } else if (cap.media_type == "image/jpeg") {
+        url = MJPEG;
     } else if (cap.media_type == "video/x-h265") {
         _url = url(H265);
     } else if (cap.media_type == "video/x-h264") {
