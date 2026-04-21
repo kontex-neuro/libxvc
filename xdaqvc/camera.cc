@@ -130,7 +130,7 @@ Camera *Camera::parse(const json &camera_json)
             cap.fps_d = std::stoi(framerate_str.substr(delimiter_pos + 1));
         }
 
-        if (cap.media_type != "image/jpeg") {
+        if (cap.media_type != "image/jpeg" && cap.media_type != "video/x-h265") {
             continue;
         }
         camera->add_cap(cap);
