@@ -55,7 +55,9 @@ public:
     void set_name(std::string_view name) { _name = name; }
     void add_cap(const Cap &cap) { _caps.emplace_back(cap); }
 
-    bool start(const Cap &cap, std::chrono::milliseconds duration = std::chrono::milliseconds(1000));
+    bool start(
+        const Cap &cap, std::chrono::milliseconds duration = std::chrono::milliseconds(1000)
+    );
     bool stop(std::chrono::milliseconds duration = std::chrono::milliseconds(1000));
 
 private:

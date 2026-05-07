@@ -12,7 +12,7 @@
 
 #include "camera.h"
 #include "server.h"
-#include "xdaqmetadata/metadata_handler.h"
+#include "xdaqmetadata/safe_queue.h"
 #include "xvc.h"
 
 namespace fs = std::filesystem;
@@ -25,13 +25,13 @@ GstElement *pipeline = nullptr;
 bool record = false;
 
 std::unique_ptr<Camera> stream_cam = nullptr;
-std::unique_ptr<MetadataHandler> handler = nullptr;
+std::unique_ptr<SafeQueue> queue = nullptr;
 std::chrono::steady_clock::time_point stream_duration;
 
 enum class Codec : int { MJPEG };
 enum class TimeUnit : int { Seconds, Minutes, Hours, Days };
 
-GstFlowReturn draw_image(GstAppSink *sink, [[maybe_unused]] void *user_data)
+GstFlowReturn draw_image(GstAppSink *sink, void *)
 {
     std::unique_ptr<GstSample, decltype(&gst_sample_unref)> sample(
         gst_app_sink_pull_sample(sink), gst_sample_unref
@@ -55,7 +55,7 @@ GstFlowReturn draw_image(GstAppSink *sink, [[maybe_unused]] void *user_data)
         static_cast<int>(g_value_get_int(gst_structure_get_value(structure, "height")));
     const auto buffer_pts = GST_BUFFER_PTS(buffer);
 
-    auto xdaqmetadata = handler->_safe_queue.dequeue(buffer_pts);
+    auto xdaqmetadata = queue->dequeue(buffer_pts);
     if (!xdaqmetadata) {
         std::println("Failed to dequeue XDAQ metadata from buffer with PTS {}", buffer_pts);
         return GST_FLOW_OK;
@@ -112,7 +112,6 @@ int func(int argc, char *argv[])
     int id;
     std::string gst_cap;
     Codec codec{Codec::MJPEG};
-    // TODO
     std::unordered_map<std::string, Codec> codec_map{{"mjpeg", Codec::MJPEG}};
 
     std::string location = "records";
@@ -174,7 +173,7 @@ int func(int argc, char *argv[])
     gst_init(&argc, &argv);
 
     if (*stream) {
-        handler = std::make_unique<MetadataHandler>();
+        queue = std::make_unique<SafeQueue>();
         pipeline = gst_pipeline_new(nullptr);
         loop = g_main_loop_new(nullptr, false);
         stream_duration = std::chrono::steady_clock::now();
@@ -234,7 +233,7 @@ int func(int argc, char *argv[])
             gst_element_get_static_pad(parser, "src"), gst_object_unref
         );
         gst_pad_add_probe(
-            src_pad.get(), GST_PAD_PROBE_TYPE_BUFFER, parse_jpeg_metadata, handler.get(), nullptr
+            src_pad.get(), GST_PAD_PROBE_TYPE_BUFFER, parse_jpeg_metadata, queue.get(), nullptr
         );
 
         GstAppSinkCallbacks callbacks = {nullptr, nullptr, draw_image, nullptr, nullptr, {nullptr}};
@@ -252,7 +251,7 @@ int func(int argc, char *argv[])
             gst_element_set_state(pipeline, GST_STATE_NULL);
         }
         stream_cam.reset();
-        handler.reset();
+        queue.reset();
     }
 
     if (*list) {

@@ -15,15 +15,15 @@ class Server
 public:
     explicit Server(std::string_view host = "192.168.177.100", int port = 8000) noexcept;
 
-    bool root(std::chrono::milliseconds timeout = std::chrono::milliseconds(500)) const;
+    bool root(std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)) const;
 
     std::optional<std::string> logs(
         std::string_view filename = "",
-        std::chrono::milliseconds timeout = std::chrono::milliseconds(500)
+        std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)
     ) const;
 
     std::optional<Version> api_version(
-        std::chrono::milliseconds timeout = std::chrono::milliseconds(500)
+        std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)
     ) const;
 
 private:

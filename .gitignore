@@ -1,4 +1,6 @@
 # IDE, Editor
+__pycache__/
+*.py[cod]
 /*.pro.user*
 /.vscode
 
@@ -6,13 +8,15 @@
 .DS_Store
 
 # Build
-/build*
-/.venv
-/.cache
-/CMakeUserPresets.json
+dist/
+build/
+.venv/
+.cache/
+CMakeUserPresets.json
 
 # clang
 .clangd
 
 *.log
 *.mkv
+*.sh

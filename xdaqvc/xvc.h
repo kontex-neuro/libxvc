@@ -23,19 +23,10 @@ struct RecordConfig {
     }
 };
 
-void setup_h265_srt_stream(GstPipeline *pipeline, const std::string &uri);
+// TODO
 void setup_jpeg_srt_stream(GstPipeline *pipeline, const std::string &uri);
-
-void start_h265_recording(
-    GstPipeline *pipeline, std::filesystem::path &filepath, bool continuous, int max_size_time,
-    int max_files
-);
-void stop_h265_recording(GstPipeline *pipeline);
 
 bool start_jpeg_recording(GstPipeline *, const RecordConfig &);
 bool stop_jpeg_recording(GstPipeline *);
-
-void parse_video_save_binary_h265(const std::string &filepath);
-void parse_video_save_binary_jpeg(const std::string &filepath);
 
 }  // namespace xvc

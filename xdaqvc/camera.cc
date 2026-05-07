@@ -17,7 +17,6 @@ constexpr std::string_view URL = "http://192.168.177.100:8000";
 constexpr std::string_view CAMERAS = "/cameras";
 constexpr std::string_view MJPEG = "/jpeg";
 constexpr std::string_view H265 = "/h265";
-constexpr std::string_view H264 = "/h264";
 constexpr std::string_view STOP = "/stop";
 constexpr auto OK = 200;
 
