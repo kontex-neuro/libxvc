@@ -1,6 +1,7 @@
 #pragma once
 
 #include <format>
+#include <optional>
 #include <regex>
 #include <string>
 #include <string_view>
@@ -58,7 +59,7 @@ public:
         }
     };
 
-    [[nodiscard]] constexpr std::string to_string() const noexcept
+    [[nodiscard]] std::string to_string() const
     {
         return std::format("{}.{}.{}", _major, _minor, _patch);
     };

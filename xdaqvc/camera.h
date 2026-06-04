@@ -17,7 +17,7 @@ public:
         int fps_n;
         int fps_d;
 
-        constexpr std::string to_string() const noexcept
+        std::string to_string() const
         {
             if (format.has_value() && !format.value().empty()) {
                 return std::format(
