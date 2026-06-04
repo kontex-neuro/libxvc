@@ -71,7 +71,7 @@ void log(const cpr::Response &r, std::string_view action)
     }
 }
 
-constexpr std::string url(std::string_view endpoint) { return std::format("{}{}", URL, endpoint); }
+std::string url(std::string_view endpoint) { return std::format("{}{}", URL, endpoint); }
 
 }  // namespace
 

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-set(libxvc_VERSION 0.2.1)
+set(libxvc_VERSION 0.3.1)
 
 project(libxvc
     LANGUAGES CXX
@@ -9,6 +9,9 @@ project(libxvc
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(Boost_USE_STATIC_LIBS ON)
+if(WIN32)
+    add_compile_definitions(_WIN32_WINNT=0x0A00)
+endif()
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "default install path" FORCE)
 endif()
