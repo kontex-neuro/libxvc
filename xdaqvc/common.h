@@ -38,11 +38,14 @@ public:
         return (*this < other) || (*this == other);
     };
 
-    // TODO
+    // Accepts "X.Y.Z" and "vX.Y.Z", normalizing the latter. The `v` prefix is not emitted by
+    // the cloud (versions.json carries bare "0.1.2"), but is accepted at public API
+    // boundaries per the update API spec. Widening what is accepted is additive and cannot
+    // break existing callers.
     [[nodiscard]] static std::optional<Version> from_string(std::string_view version)
     {
         try {
-            std::regex regex(R"((\d+)\.(\d+)\.(\d+))");
+            std::regex regex(R"(v?(\d+)\.(\d+)\.(\d+))");
             std::smatch matches;
             std::string version_str(version);
 

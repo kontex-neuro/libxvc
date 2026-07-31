@@ -1,3 +1,22 @@
+# ADR 0009: tests are a local developer tool, not a CI gate. catch_discover_tests is what
+# makes `ctest` find anything at all -- nothing was registered before, so ctest discovered
+# zero tests regardless of how many executables existed.
+include(Catch)
+
+add_executable(test_update_sha256 test_update_sha256.cc)
+target_link_libraries(test_update_sha256
+    PRIVATE
+        xvc
+        Catch2::Catch2WithMain
+)
+target_compile_features(test_update_sha256 PRIVATE cxx_std_23)
+target_compile_options(test_update_sha256
+    PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+)
+catch_discover_tests(test_update_sha256)
+
 add_executable(test_port_pool test_port_pool.cc)
 target_link_libraries(test_port_pool
     PRIVATE
