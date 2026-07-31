@@ -91,7 +91,13 @@ target_compile_options(test_port_pool
         $<$<CXX_COMPILER_ID:MSVC>:/W4>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
 )
+catch_discover_tests(test_port_pool)
 
+# NOT registered with CTest on purpose: test_ws_client connects to a hardcoded device at
+# 192.168.177.100 and blocks waiting for camera events, so registering it would make `ctest`
+# hang on any checkout without that hardware on the network. This is the coupling ADR 0009
+# identifies as the reason the previous test suite went unrun. It still builds, and can be
+# invoked directly on the bench.
 add_executable(test_ws_client test_ws_client.cc)
 target_link_libraries(test_ws_client
     PRIVATE
@@ -118,3 +124,4 @@ target_compile_options(test_camera
         $<$<CXX_COMPILER_ID:MSVC>:/W4>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
 )
+catch_discover_tests(test_camera)
