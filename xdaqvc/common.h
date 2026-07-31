@@ -18,6 +18,13 @@ public:
     {
     }
 
+    // Component access. Needed by the update API's compatibility policy, which gates on the
+    // major.minor series and must compare components rather than whole versions (ADR 0007).
+    // Additive; cannot break existing callers.
+    [[nodiscard]] constexpr int major() const noexcept { return _major; }
+    [[nodiscard]] constexpr int minor() const noexcept { return _minor; }
+    [[nodiscard]] constexpr int patch() const noexcept { return _patch; }
+
     constexpr bool operator==(const Version &other) const noexcept
     {
         return _major == other._major && _minor == other._minor && _patch == other._patch;

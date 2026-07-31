@@ -19,4 +19,5 @@
 
 #include "artifact.h"
 #include "manifest.h"
+#include "plan.h"
 #include "types.h"

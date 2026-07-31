@@ -36,6 +36,20 @@ target_compile_options(test_update_manifest
 )
 catch_discover_tests(test_update_manifest)
 
+add_executable(test_update_plan test_update_plan.cc)
+target_link_libraries(test_update_plan
+    PRIVATE
+        xvc
+        Catch2::Catch2WithMain
+)
+target_compile_features(test_update_plan PRIVATE cxx_std_23)
+target_compile_options(test_update_plan
+    PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+)
+catch_discover_tests(test_update_plan)
+
 add_executable(test_port_pool test_port_pool.cc)
 target_link_libraries(test_port_pool
     PRIVATE
