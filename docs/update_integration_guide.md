@@ -33,6 +33,44 @@ you own the verified file it returns. A repeated update re-downloads ~46 MB.
 
 ---
 
+## Where this fits in the application
+
+[`flowchart_mermaid.md`](flowchart_mermaid.md) is the **app-level** flow — launch, connect,
+gate, run — and is the starting point for designing the update experience. This guide covers
+only the API calls behind the update path (nodes `B`–`K`). Dialog wording, retry policy,
+reconnect behaviour, and everything on the client-self-update branch are application
+concerns that libxvc has no opinion about.
+
+| Flowchart node | Your responsibility | API involved |
+| --- | --- | --- |
+| `B` connect / read server version | Reconnect loop, timeouts | `get_device_version()` |
+| `C` device connected? | Retry policy when unreachable | returns `NetworkUnreachable` |
+| `D` version compatible? | — | `plan_update()` → `action`, `required` |
+| `E` REQUIRED update dialog | Blocking modal wording | `plan->required == true` |
+| `F` user choice | Offering "Ignore" at all is your call | — |
+| `G` package available? | — | `fetch_versions_json()` |
+| `H` download | Progress UI, cancel button | `download_artifact()` |
+| `H1` download OK? | Route failures to `J1` | error code from `download_artifact()` |
+| `I` push to device | "Do not disconnect" warning | handshake → prepare → transfer |
+| `J` succeeded? | — | return value of the transfer |
+| `J1` failed, device restored | Retry / Quit dialog | firmware rolls back on its own |
+| `K` restart app / reconnect | Reconnect sequencing | back to `B` |
+| `M`–`P` client self-update | **Not implemented in libxvc.** Future work. | — |
+
+Four things the flowchart requires that this guide's happy path does not show:
+
+- **`C` — device not connected.** `get_device_version()` returns `NetworkUnreachable`; loop
+  back and retry rather than treating it as an update failure.
+- **`F` — "Ignore" on a required update.** The flowchart allows it (edge `F → O`). libxvc
+  does not enforce blocking; `plan->required` only *tells* you it is required. If your
+  product decides a required update cannot be dismissed, that is enforced in the app.
+- **`J1` — the device restores itself.** On a failed apply, firmware rolls back. Your job is
+  the Retry / Quit dialog, not recovery.
+- **`K` — after success the device restarts.** Expect the connection to drop; reconnect and
+  re-read the version rather than assuming the new version is live immediately.
+
+---
+
 ## The call sequence
 
 libxvc deliberately has no `update_device()` — the app owns sequencing so it can show the
@@ -191,11 +229,30 @@ manifest is the trust anchor.
 
 ## Reference
 
-- **Headers** — `xdaqvc/update/{types,manifest,plan,artifact,device}.h`. The contracts are
-  documented at each declaration.
-- **Why it works this way** — `docs/decisions/`. Most relevant here: 0003 (threading),
+**Read these two, in this order:**
+
+1. [`flowchart_mermaid.md`](flowchart_mermaid.md) — the app-level flow. Design the
+   experience from this.
+2. **This guide** — the API calls behind the update portion of that flow.
+
+**Consult as needed:**
+
+- **Headers** — `xdaqvc/update/{types,manifest,plan,artifact,device}.h`. Every contract is
+  documented at its declaration; these are the authority if anything here disagrees.
+- **Why it works this way** — [`decisions/`](decisions/). Most relevant: 0003 (threading),
   0005 (errors), 0007 (policy), 0008 (artifact lifecycle).
-- **Not implemented** — `update_device()` orchestration (deliberate, ADR 0006) and client
-  self-update.
-- **Unverified** — the device HTTP paths have not been run against real hardware, and the
-  macOS SHA-256 branch has not been built. Exercise both before shipping.
+
+**Do NOT build against** `update_api_spec.md` or `update_utility_api_spec.md`. They are
+superseded design records, retained for history and bannered as such.
+
+**Not implemented:**
+
+- `update_device()` one-call orchestration — deliberate (ADR 0006); you drive the sequence.
+- Client self-update (flowchart nodes `M`–`P`) — future work; nothing in libxvc supports it.
+
+**Unverified — treat as untested until you exercise it:**
+
+- Every device HTTP path (handshake, prepare, transfer, log stream) has been compiled and
+  its response parsing unit-tested, but **never run against real hardware**.
+- `fetch_versions_json()` and `download_artifact()`'s network path have no test coverage.
+- The macOS SHA-256 implementation has never been built or run.
