@@ -45,28 +45,48 @@ cmake --build build/Release --preset conan-release
 conan export-pkg . -pr:a <profile> -s build_type=Release
 ```
 
-## Run updater tests
+## Device update API
 
-1. Install dependencies with option `build_testing` enabled 
+Integrating device updates into an application: see
+[`docs/update_integration_guide.md`](docs/update_integration_guide.md) for the call
+sequence, the callback threading rules, and the error-handling table. Design rationale is
+recorded as ADRs in [`docs/decisions/`](docs/decisions/).
+
+## Run tests
+
+On Windows, `run_tests.bat` does all of the below in one step.
+
+1. Install dependencies
 ```sh
-conan install . -b missing -pr:a <profile> -s build_type=Release -o build_testing=True
+conan install . -b missing -pr:a <profile> -s build_type=Release
 ```
 
-2. Generate the build files with CMake
+2. Generate the build files with CMake (the option is `BUILD_TESTS`)
 ```sh
-cmake -S . -B build/Release --preset conan-release -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --preset conan-release -DBUILD_TESTS=ON
 ```
 
 3. Build the project
 ```sh
-cmake --build build/Release --preset conan-release
+cmake --build build
 ```
 
 4. Run tests
 ```sh
-cd ./build/Release/test
+cd build
 ctest --output-on-failure
 ```
+
+Tests requiring a device or network are tagged `[.integration]` and are excluded from the
+default run. To exercise the device protocol on the bench:
+
+```sh
+set XVC_TEST_DEVICE_HOST=<device-ip>
+build/tests/test_update_device.exe "[.integration]"
+```
+
+The transfer case additionally requires `XVC_TEST_DEVICE_ARTIFACT` to be set to a
+`manifest.json` path; it installs a package and restarts the device.
 
 ## Examples
 
