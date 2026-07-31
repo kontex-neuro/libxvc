@@ -18,4 +18,5 @@
 //     There is no cache; offline updates use use_local_artifact(). (ADR 0008)
 
 #include "artifact.h"
+#include "manifest.h"
 #include "types.h"

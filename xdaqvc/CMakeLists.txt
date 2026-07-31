@@ -8,6 +8,7 @@ target_sources(xvc
         ${CMAKE_CURRENT_SOURCE_DIR}/server.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/validator.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/update/artifact.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/update/manifest.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/port_pool.h
         ${CMAKE_CURRENT_SOURCE_DIR}/validator.h
     PUBLIC
@@ -29,6 +30,7 @@ target_sources(xvc
             ${CMAKE_CURRENT_SOURCE_DIR}/update/update.h
             ${CMAKE_CURRENT_SOURCE_DIR}/update/types.h
             ${CMAKE_CURRENT_SOURCE_DIR}/update/artifact.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/update/manifest.h
 )
 set_target_properties(xvc 
     PROPERTIES 

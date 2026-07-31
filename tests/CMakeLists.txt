@@ -17,6 +17,25 @@ target_compile_options(test_update_sha256
 )
 catch_discover_tests(test_update_sha256)
 
+add_executable(test_update_manifest test_update_manifest.cc)
+target_link_libraries(test_update_manifest
+    PRIVATE
+        xvc
+        nlohmann_json::nlohmann_json
+        Catch2::Catch2WithMain
+)
+target_compile_features(test_update_manifest PRIVATE cxx_std_23)
+# Resolves the fixtures regardless of the directory the test binary is launched from.
+target_compile_definitions(test_update_manifest
+    PRIVATE XVC_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+)
+target_compile_options(test_update_manifest
+    PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+)
+catch_discover_tests(test_update_manifest)
+
 add_executable(test_port_pool test_port_pool.cc)
 target_link_libraries(test_port_pool
     PRIVATE

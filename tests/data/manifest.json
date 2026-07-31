@@ -1,0 +1,15 @@
+{
+  "version": "0.1.2",
+  "platform": "linux-arm64",
+  "environment": "release",
+  "status": "stable",
+  "released_at": "2026-07-22T10:48:38Z",
+  "files": [
+    {
+      "name": "ThorVisionServer-0.1.2-linux-arm64.tar.xz",
+      "size": 46070024,
+      "sha256": "7819a0bd00b1aa859df4cd410fc2bb97fe6f47cd505a30e6b5ef7d4697a18ff4"
+    }
+  ],
+  "changelog": "### Added\n- WoLF-filtered SPI time reference with a versioned seqlock shared-memory snapshot for consistent producer-to-consumer updates.\n\n### Compatibility\n- The v2 shared-memory layout requires the SPI producer and camera consumers to be deployed together."
+}

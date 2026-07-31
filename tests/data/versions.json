@@ -1,0 +1,56 @@
+{
+  "updated_at": "2026-07-22T10:49:25Z",
+  "latest_release": {
+    "linux-arm64": "0.1.2"
+  },
+  "versions": [
+    {
+      "version": "0.1.2",
+      "platform": "linux-arm64",
+      "environment": "release",
+      "status": "stable",
+      "released_at": "2026-07-22T10:48:38Z",
+      "files": [
+        {
+          "name": "ThorVisionServer-0.1.2-linux-arm64.tar.xz",
+          "size": 46070024,
+          "sha256": "7819a0bd00b1aa859df4cd410fc2bb97fe6f47cd505a30e6b5ef7d4697a18ff4"
+        }
+      ],
+      "changelog": "### Added\n- WoLF-filtered SPI time reference with a versioned seqlock shared-memory snapshot for consistent producer-to-consumer updates.\n- Camera-arrival timestamp projection for JPEG and H.265 metadata, with SPI sequence and projection health metrics.\n- One-second SPI diagnostics on the console and one-minute summaries plus events in persisted producer logs.\n- Daily compression of rotated SPI producer logs and automatic pruning of archives older than 14 days.\n\n### Changed\n- Increased SPI acquisition speed from 1 MHz to 8 MHz.\n- Reduced periodic camera SPI summaries to a one-minute cadence while keeping warning and error events immediate.\n\n### Fixed\n- Improved FPGA timestamp reset confirmation, backward-timestamp re-baselining, and WoLF outlier accounting.\n- Prevented compression of the active SPI producer log.\n- Prevented camera process ownership races and bounded consecutive automatic restart attempts.\n\n### Compatibility\n- The v2 shared-memory layout requires the SPI producer and camera consumers to be deployed together.",
+      "download_base": "/dist/v0.1.2/linux-arm64/"
+    },
+    {
+      "version": "0.1.1",
+      "platform": "linux-arm64",
+      "environment": "release",
+      "status": "stable",
+      "released_at": "2026-06-15T09:31:05Z",
+      "files": [
+        {
+          "name": "ThorVisionServer-0.1.1-linux-arm64.tar.xz",
+          "size": 45949808,
+          "sha256": "fa31771a9951c967d35514b78d925091065c9e22b01fc9d31e099163b5699666"
+        }
+      ],
+      "changelog": "### Added\n- Jetson stats monitoring: background `StatsMonitor` samples CPU, GPU, RAM, swap, temperatures, and power via `jtop` and writes JSON to a dedicated `stats.log`.\n- Startup commands on server start: `jetson_clocks` and SPI power control (`power/control` → `on`) for improved SPI performance.\n- `stats.log` daily rotation with gzip-compressed backups; log API now lists `stats.log` and transparently serves `.gz` backups.\n\n### Dependencies\n- Added `jetson-stats ^4.3`.",
+      "download_base": "/dist/v0.1.1/linux-arm64/"
+    },
+    {
+      "version": "0.1.0",
+      "platform": "linux-arm64",
+      "environment": "release",
+      "status": "stable",
+      "released_at": "2026-06-03T06:11:17Z",
+      "files": [
+        {
+          "name": "ThorVisionServer-0.1.0-linux-arm64.tar.xz",
+          "size": 45816236,
+          "sha256": "cce0adccf375dd6a643196baba45aea3965b57f6166d54f4b15e09f4b65bfefa"
+        }
+      ],
+      "changelog": "### Added\n- Initial release of ThorVision Server.",
+      "download_base": "/dist/v0.1.0/linux-arm64/"
+    }
+  ]
+}
