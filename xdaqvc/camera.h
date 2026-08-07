@@ -1,49 +1,69 @@
 #pragma once
 
 #include <chrono>
+#include <format>
+#include <optional>
 #include <string>
 #include <vector>
-
-
-using namespace std::chrono_literals;
-
 
 class Camera
 {
 public:
     struct Cap {
         std::string media_type;
-        std::string format;
+        std::optional<std::string> format = std::nullopt;
         int width;
         int height;
         int fps_n;
         int fps_d;
+
+        std::string to_string() const
+        {
+            if (format.has_value() && !format.value().empty()) {
+                return std::format(
+                    "{},format={},width={},height={},framerate={}/{}",
+                    media_type,
+                    format.value(),
+                    width,
+                    height,
+                    fps_n,
+                    fps_d
+                );
+            } else {
+                return std::format(
+                    "{},width={},height={},framerate={}/{}", media_type, width, height, fps_n, fps_d
+                );
+            }
+        }
     };
 
-    Camera(const int id, const std::string &name);
+    explicit Camera(int id, std::string device_id, std::string name);
     ~Camera();
 
-    [[nodiscard]] static std::string cameras(const std::chrono::milliseconds duration = 500ms);
-    [[nodiscard]] std::string name() const { return _name; };
-    [[nodiscard]] std::vector<Cap> caps() const { return _caps; };
-    [[nodiscard]] unsigned short port() const { return _port; };
-    [[nodiscard]] int id() const { return _id; }
-    [[nodiscard]] std::string current_cap() const { return _current_cap; };
+    // TODO: Camera::parse is used by xvc::ws_client function pointer and Camera::cameras
+    //       but it should be made private.
+    [[nodiscard]] static std::unique_ptr<Camera> parse(std::string_view camera_json);
+    [[nodiscard]] static std::vector<std::unique_ptr<Camera>> cameras(
+        std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)
+    );
+    [[nodiscard]] int id() const noexcept { return _id; }
+    [[nodiscard]] const std::string &device_id() const noexcept { return _device_id; }
+    [[nodiscard]] const std::string &name() const noexcept { return _name; }
+    [[nodiscard]] unsigned short port() const noexcept { return _port; }
+    [[nodiscard]] const std::vector<Cap> &caps() const noexcept { return _caps; }
 
-    void set_current_cap(const std::string &cap) { _current_cap = cap; }
+    void set_name(std::string_view name) { _name = name; }
     void add_cap(const Cap &cap) { _caps.emplace_back(cap); }
 
-    void start(const std::chrono::milliseconds duration = 500ms);
-    void stop(const std::chrono::milliseconds duration = 500ms);
-
-    void set_test(const bool test) { _test = test; };
-    [[nodiscard]] bool test_mode() const { return _test; };
+    bool start(
+        const Cap &cap, std::chrono::milliseconds duration = std::chrono::milliseconds(1000)
+    );
+    bool stop(std::chrono::milliseconds duration = std::chrono::milliseconds(1000));
 
 private:
     int _id;
+    std::string _device_id;
     unsigned short _port;
     std::string _name;
     std::vector<Cap> _caps;
-    std::string _current_cap;
-    bool _test;
 };

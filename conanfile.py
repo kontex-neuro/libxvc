@@ -4,30 +4,26 @@ from conan.tools.cmake import CMakeToolchain, CMake, cmake_layout, CMakeDeps
 
 class libxvc(ConanFile):
     name = "libxvc"
-    version = "0.1.0"
+    version = "0.4.0"
     settings = "os", "compiler", "build_type", "arch"
     generators = "VirtualRunEnv"
     license = "LGPL-3.0-or-later"
     url = "https://github.com/kontex-neuro/libxvc.git"
     description = "Thor Vision Video Capture library"
-    options = {"build_testing": [True, False]}
-    default_options = {"build_testing": False}
+    exports_sources = "CMakeLists.txt", "cmake/*", "xdaqvc/*", "tools/*"
 
     def build_requirements(self):
         self.tool_requires("cmake/[>=3.25.0 <3.30.0]")
         self.tool_requires("ninja/[>=1.12.0]")
-        if self.options.build_testing:
-            # self.test_requires("catch2/3.8.0")
-            self.test_requires("gtest/1.14.0")
+        self.test_requires("catch2/3.8.0")
 
     def requirements(self):
         self.requires("boost/1.81.0")
-        self.requires("fmt/10.2.1")
         self.requires("spdlog/1.13.0")
         self.requires("nlohmann_json/3.11.3")
-        self.requires("cpr/1.10.5")
-        self.requires("xdaqmetadata/0.1.0")
-        self.requires("openssl/3.4.1")
+        self.requires("json-schema-validator/2.3.0")
+        self.requires("cpr/1.14.2")
+        self.requires("xdaqmetadata/0.2.0")
         self.requires("cli11/2.5.0")
 
     def configure(self):
@@ -82,7 +78,6 @@ class libxvc(ConanFile):
         deps.generate()
         tc = CMakeToolchain(self)
         tc.generator = "Ninja"
-        tc.variables["BUILD_TESTING"] = self.options.build_testing
         tc.generate()
 
     def build(self):
@@ -95,4 +90,4 @@ class libxvc(ConanFile):
         cmake.install()
 
     def package_info(self):
-        self.cpp_info.libs = ["libxvc"]
+        self.cpp_info.libs = ["xvc"]

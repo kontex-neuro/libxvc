@@ -1,4 +1,6 @@
 # IDE, Editor
+__pycache__/
+*.py[cod]
 /*.pro.user*
 /.vscode
 
@@ -6,13 +8,19 @@
 .DS_Store
 
 # Build
-/build*
-/.venv
-/.cache
-/CMakeUserPresets.json
+dist/
+build/
+.venv/
+.cache/
+CMakeUserPresets.json
 
 # clang
 .clangd
 
+# Conan publishing credentials. Holds a live R2 secret key and a GitHub PAT.
+# Only the .example is tracked; delete the real file after running setup.
+/.github/scripts/conan_publishing.env
+
 *.log
 *.mkv
+*.sh
