@@ -1,0 +1,159 @@
+name: Build prebuilt Conan archives
+
+on:
+  workflow_call:
+  # Dry run for a release without publishing anything. Use this before the first
+  # tag, and after any change to this workflow: Debug has never been built by CI,
+  # so its first exercise must not be a real, irreversible release.
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            arch: x64
+            artifact_prefix: windows-x86_64
+          - os: macos-15
+            arch: armv8
+            artifact_prefix: macos-armv8
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      gst_version: 1.26.8
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Compiler (Windows)
+        if: matrix.os == 'windows-2022'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup Compiler (macOS)
+        if: matrix.os == 'macos-15'
+        run: |
+          echo "CC=$(brew --prefix llvm@18)/bin/clang" >> $GITHUB_ENV
+          echo "CXX=$(brew --prefix llvm@18)/bin/clang++" >> $GITHUB_ENV
+
+      - name: Install build tools
+        run: pipx install cmake conan ninja
+
+      - name: Install pkg-config (Windows)
+        if: matrix.os == 'windows-2022'
+        run: choco install pkgconfiglite
+
+      - name: Install conan profile
+        run: conan config install .github/conan_profiles/${{ matrix.os }}-${{ matrix.arch }} -tf profiles
+
+      - name: Cache conan
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: ${{ matrix.artifact_prefix }}-conan-${{ hashFiles('conanfile.py') }}
+          restore-keys: ${{ matrix.artifact_prefix }}-conan-
+
+      - name: Cache gstreamer
+        uses: actions/cache@v4
+        id: cache-gstreamer
+        with:
+          path: |
+            C:\Program Files\gstreamer
+            /Library/Frameworks/GStreamer.framework
+          key: ${{ matrix.artifact_prefix }}-gstreamer-${{ env.gst_version }}
+          restore-keys: ${{ matrix.artifact_prefix }}-gstreamer-
+
+      - name: Install gstreamer (Windows)
+        if: matrix.os == 'windows-2022' && steps.cache-gstreamer.outputs.cache-hit != 'true'
+        env:
+          gst_archive: gstreamer-1.0-msvc-x86_64-${{ env.gst_version }}.msi
+          gst_devel_archive: gstreamer-1.0-devel-msvc-x86_64-${{ env.gst_version }}.msi
+        run: |
+          curl -o "${{ env.gst_archive }}" "https://gstreamer.freedesktop.org/data/pkg/windows/${{ env.gst_version }}/msvc/${{ env.gst_archive }}"
+          curl -o "${{ env.gst_devel_archive }}" "https://gstreamer.freedesktop.org/data/pkg/windows/${{ env.gst_version }}/msvc/${{ env.gst_devel_archive }}"
+
+          $log = "install.log"
+
+          $process = Start-Process "msiexec" "/i `"${{ env.gst_archive }}`" /qn /l*! `"$log`"" -NoNewWindow -PassThru
+          $process_log = Start-Process "powershell" "Get-Content -Path `"$log`" -Wait" -NoNewWindow -PassThru
+          $process.WaitForExit()
+          $process_log.Kill()
+
+          $process = Start-Process "msiexec" "/i `"${{ env.gst_devel_archive }}`" /qn /l*! `"$log`"" -NoNewWindow -PassThru
+          $process_log = Start-Process "powershell" "Get-Content -Path `"$log`" -Wait" -NoNewWindow -PassThru
+          $process.WaitForExit()
+          $process_log.Kill()
+
+      - name: Install gstreamer (macOS)
+        if: matrix.os == 'macos-15' && steps.cache-gstreamer.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          gst_archive=gstreamer-1.0-${{ env.gst_version }}-universal.pkg
+          gst_devel_archive=gstreamer-1.0-devel-${{ env.gst_version }}-universal.pkg
+
+          curl -o "$gst_archive" "https://gstreamer.freedesktop.org/data/pkg/osx/${{ env.gst_version }}/$gst_archive"
+          curl -o "$gst_devel_archive" "https://gstreamer.freedesktop.org/data/pkg/osx/${{ env.gst_version }}/$gst_devel_archive"
+
+          sudo installer -pkg $gst_archive -target /
+          sudo installer -pkg $gst_devel_archive -target /
+
+      - name: Setup conan index
+        run: |
+          git clone --depth 1 --branch master https://github.com/kontex-neuro/kontex-conan.git kontex-conan
+          conan remote add --force kontex-neuro ./kontex-conan
+
+      # Release and Debug are installed into separate prefixes so both survive in
+      # one job. Do not collapse these into one loop that reuses build/install:
+      # the second install would overwrite the first.
+      - name: Build & Install Release and Debug (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        env:
+          PKG_CONFIG_PATH: "C:\\Program Files\\gstreamer\\1.0\\msvc_x86_64\\lib\\pkgconfig"
+        run: |
+          set -euo pipefail
+          for build_type in Release Debug; do
+            conan install . -b missing -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type=$build_type
+            cmake -S . -B "build/$build_type" \
+              --preset "conan-$(echo $build_type | tr '[:upper:]' '[:lower:]')" \
+              -G Ninja \
+              -DCMAKE_INSTALL_PREFIX="build/install/$build_type" \
+              -DCMAKE_BUILD_TYPE=$build_type
+            cmake --build "build/$build_type" --target install
+          done
+
+      - name: Build & Install Release and Debug (macOS)
+        if: matrix.os == 'macos-15'
+        shell: bash
+        env:
+          PKG_CONFIG_PATH: /Library/Frameworks/GStreamer.framework/Versions/1.0/lib/pkgconfig
+        run: |
+          set -euo pipefail
+          for build_type in Release Debug; do
+            conan install . -b missing -pr:a ${{ matrix.os }}-${{ matrix.arch }} -s build_type=$build_type
+            cmake -S . -B "build/$build_type" \
+              --preset "conan-$(echo $build_type | tr '[:upper:]' '[:lower:]')" \
+              -G Ninja \
+              -DCMAKE_INSTALL_PREFIX="build/install/$build_type" \
+              -DCMAKE_BUILD_TYPE=$build_type
+            cmake --build "build/$build_type" --target install
+          done
+
+      # Archive names carry no version here. The publish job appends -<version>
+      # so that the name matches what public_conan.py computes at consume time.
+      - name: Create archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv "build/install/Release" "${{ matrix.artifact_prefix }}-release"
+          7z a "${{ matrix.artifact_prefix }}-release.zip" "${{ matrix.artifact_prefix }}-release"
+          mv "build/install/Debug" "${{ matrix.artifact_prefix }}-debug"
+          7z a "${{ matrix.artifact_prefix }}-debug.zip" "${{ matrix.artifact_prefix }}-debug"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_prefix }}
+          path: ${{ matrix.artifact_prefix }}-*.zip
+          if-no-files-found: error

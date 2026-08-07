@@ -1,0 +1,125 @@
+name: Publish prebuilt Conan package
+
+# Publishing is irreversible. R2 objects and kontex-conan recipes are immutable
+# per version: once vX.Y.Z is published its content is fixed forever. Correct a
+# bad release by releasing vX.Y.Z+1 -- never by moving a tag or overwriting.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - run: pipx install conan
+      - id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Strict SemVer only. v1.2, v1.2.3-rc1 and friends must not publish.
+          [[ "$GITHUB_REF_NAME" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]
+          version="${GITHUB_REF_NAME#v}"
+          recipe_version="$(conan inspect --format=json . | jq -r .version)"
+          if [ "$version" != "$recipe_version" ]; then
+            echo "tag $GITHUB_REF_NAME disagrees with conanfile.py version $recipe_version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: validate
+    uses: ./.github/workflows/build_prebuilt.yml
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.KONTEX_R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.KONTEX_R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ENDPOINT: https://${{ vars.KONTEX_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten and version archives
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          find dist -mindepth 2 -name '*.zip' -exec mv {} dist/ \;
+          find dist -mindepth 1 -type d -empty -delete
+          for file in dist/*.zip; do
+            mv "$file" "${file%.zip}-$VERSION.zip"
+          done
+          ls -1 dist
+
+      # The whole matrix must have landed. A partial upload would publish a
+      # version that resolves for some consumers and 404s for others.
+      - name: Verify expected archives are present
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for expected in \
+            "windows-x86_64-release-$VERSION.zip" \
+            "windows-x86_64-debug-$VERSION.zip" \
+            "macos-armv8-release-$VERSION.zip" \
+            "macos-armv8-debug-$VERSION.zip"; do
+            test -f "dist/$expected" || { echo "missing archive: $expected"; exit 1; }
+          done
+
+      - name: Publish immutable R2 objects
+        run: |
+          python .github/scripts/publish_r2_archives.py \
+            --directory dist --endpoint "$R2_ENDPOINT" \
+            --bucket "${{ vars.KONTEX_R2_BUCKET }}" \
+            --prefix "${{ vars.KONTEX_R2_PACKAGE_PREFIX }}"
+
+      # The recipe must never reach kontex-conan before every archive is
+      # publicly readable, or consumers resolve a recipe whose download 404s.
+      - name: Verify public downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in dist/*.zip; do
+            curl --fail --silent --show-error --head \
+              "${{ vars.KONTEX_R2_PUBLIC_BASE_URL }}/${{ vars.KONTEX_R2_PACKAGE_PREFIX }}/$(basename "$file")"
+          done
+
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ vars.KONTEX_CONAN_REPOSITORY }}
+          token: ${{ secrets.KONTEX_CONAN_PAT }}
+          path: kontex-conan
+
+      - name: Generate and publish source-free recipe
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/scripts/publish_conan_recipe.py \
+            "$VERSION" public_conan.py "kontex-conan/recipes/libxvc"
+          cd kontex-conan
+          if test -z "$(git status --porcelain -- recipes/libxvc)"; then
+            echo "recipe for $VERSION already present and identical; nothing to push"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "recipes/libxvc"
+          git commit -m "chore: add libxvc $VERSION recipe"
+          git push

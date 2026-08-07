@@ -17,6 +17,10 @@ CMakeUserPresets.json
 # clang
 .clangd
 
+# Conan publishing credentials. Holds a live R2 secret key and a GitHub PAT.
+# Only the .example is tracked; delete the real file after running setup.
+/.github/scripts/conan_publishing.env
+
 *.log
 *.mkv
 *.sh
