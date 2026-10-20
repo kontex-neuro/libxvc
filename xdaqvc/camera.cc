@@ -1,4 +1,5 @@
 #include "camera.h"
+#include "recording.h"
 
 #include <cpr/api.h>
 #include <spdlog/spdlog.h>
@@ -71,7 +72,7 @@ void log(const cpr::Response &r, std::string_view action)
     }
 }
 
-std::string url(std::string_view endpoint) { return std::format("{}{}", URL, endpoint); }
+std::string url(std::string_view endpoint) { return xvc::device_url()+std::string(endpoint); }
 
 }  // namespace
 
@@ -92,7 +93,7 @@ Camera::Camera(int id, std::string device_id, std::string name)
 
 Camera::~Camera()
 {
-    if (pool.release(_port)) {
+    if (!_remote_port && pool.release(_port)) {
         spdlog::debug(
             "Deleting camera id: {}, device_id: {}, name: {}, port: {}",
             _id,
@@ -122,6 +123,12 @@ std::unique_ptr<Camera> Camera::parse(std::string_view camera_json)
             json.at("name").get<std::string>()
         );
 
+        if (json.contains("srt_port") && json["srt_port"].is_number_integer())
+            camera->adopt_recording_state(json.value("stable_id", ""), json["srt_port"].get<unsigned short>());
+        if (json.contains("active_profile") && json["active_profile"].is_object()) {
+            auto p=xvc::RecordingProfile::parse(json["active_profile"]);
+            camera->_active_profile=Cap{p.codec=="h265"?"video/x-h265":"image/jpeg", std::nullopt,p.width,p.height,p.fps_n,p.fps_d};
+        }
         for (const auto &cap_json : json.at("caps")) {
             Camera::Cap cap{
                 .media_type = cap_json.at("media_type").get<std::string>(),
@@ -169,6 +176,11 @@ std::vector<std::unique_ptr<Camera>> Camera::cameras(std::chrono::milliseconds d
         }
     }
     return cameras;
+}
+
+void Camera::adopt_recording_state(std::string identity,unsigned short port) {
+    if (!_remote_port) pool.release(_port);
+    _remote_port=true; _port=port; _stable_id=std::move(identity);
 }
 
 bool Camera::start(const Cap &cap, std::chrono::milliseconds duration)

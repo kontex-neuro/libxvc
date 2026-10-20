@@ -179,3 +179,6 @@ Example output:
 * Ninja ([Apache License 2.0](https://github.com/ninja-build/ninja/blob/master/COPYING))
 * nlohmann/json ([MIT License](https://github.com/nlohmann/json/blob/develop/LICENSE.MIT))
 * spdlog ([MIT License](https://github.com/gabime/spdlog/blob/v1.x/LICENSE))
+## Device recording API
+
+See [recording integration](docs/recording_integration_guide.md) for autonomous SSD recording state, configuration, storage operations and shared-source coordination.

@@ -38,7 +38,7 @@ static auto camera_schema = R"(
 
 std::expected<void, std::string> validate_camera(const nlohmann::json &json)
 {
-    static auto validator = [] -> json_validator {
+    static auto validator = []() -> json_validator {
         json_validator v;
         try {
             v.set_root_schema(camera_schema);

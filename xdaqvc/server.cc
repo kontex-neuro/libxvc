@@ -1,4 +1,5 @@
 #include "server.h"
+#include "recording.h"
 
 #include <cpr/api.h>
 #include <spdlog/spdlog.h>
@@ -15,7 +16,7 @@ namespace xvc
 {
 
 Server::Server(std::string_view host, int port) noexcept
-    : _base_url(std::format("http://{}:{}", host, port))
+    : _base_url(host=="192.168.177.100" && port==8000 ? device_url() : std::format("http://{}:{}", host, port))
 {
 }
 

@@ -46,6 +46,9 @@ public:
     [[nodiscard]] static std::vector<std::unique_ptr<Camera>> cameras(
         std::chrono::milliseconds timeout = std::chrono::milliseconds(1000)
     );
+    [[nodiscard]] const std::string& stable_id() const noexcept { return _stable_id; }
+    [[nodiscard]] const std::optional<Cap>& active_profile() const noexcept { return _active_profile; }
+    void adopt_recording_state(std::string stable_id, unsigned short port);
     [[nodiscard]] int id() const noexcept { return _id; }
     [[nodiscard]] const std::string &device_id() const noexcept { return _device_id; }
     [[nodiscard]] const std::string &name() const noexcept { return _name; }
@@ -61,6 +64,9 @@ public:
     bool stop(std::chrono::milliseconds duration = std::chrono::milliseconds(1000));
 
 private:
+    std::string _stable_id;
+    std::optional<Cap> _active_profile;
+    bool _remote_port = false;
     int _id;
     std::string _device_id;
     unsigned short _port;
