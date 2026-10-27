@@ -23,5 +23,6 @@ CMakeUserPresets.json
 
 *.log
 *.mkv
-*.sh# Small loop_recorder segments used as analytics test fixtures
+*.sh
+# Small loop_recorder segments used as analytics test fixtures
 !tests/data/analytics/*.mkv
