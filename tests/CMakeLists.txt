@@ -125,3 +125,19 @@ target_compile_options(test_camera
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
 )
 catch_discover_tests(test_camera)
+
+add_executable(test_analytics test_analytics.cc)
+target_link_libraries(test_analytics
+    PRIVATE
+        xvc
+        nlohmann_json::nlohmann_json
+        Catch2::Catch2WithMain
+)
+target_compile_features(test_analytics PRIVATE cxx_std_23)
+target_compile_definitions(test_analytics PRIVATE XVC_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+target_compile_options(test_analytics
+    PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
+)
+catch_discover_tests(test_analytics)

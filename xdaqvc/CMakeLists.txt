@@ -7,6 +7,7 @@ target_sources(xvc
         ${CMAKE_CURRENT_SOURCE_DIR}/ws_client.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/server.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/recording.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/analytics.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/validator.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/update/artifact.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/update/manifest.cc
@@ -28,6 +29,7 @@ target_sources(xvc
             ${CMAKE_CURRENT_SOURCE_DIR}/camera.h
             ${CMAKE_CURRENT_SOURCE_DIR}/server.h
             ${CMAKE_CURRENT_SOURCE_DIR}/recording.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/analytics.h
             # ${CMAKE_CURRENT_SOURCE_DIR}/stream.h
             ${CMAKE_CURRENT_SOURCE_DIR}/common.h
             ${CMAKE_CURRENT_SOURCE_DIR}/ws_client.h
