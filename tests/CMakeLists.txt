@@ -135,6 +135,8 @@ target_link_libraries(test_analytics
 )
 target_compile_features(test_analytics PRIVATE cxx_std_23)
 target_compile_definitions(test_analytics PRIVATE XVC_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+# test_analytics.cc includes "xdaqvc/analytics.h"; the xvc header set is based on xdaqvc/.
+target_include_directories(test_analytics PRIVATE "${PROJECT_SOURCE_DIR}")
 target_compile_options(test_analytics
     PRIVATE
         $<$<CXX_COMPILER_ID:MSVC>:/W4>
