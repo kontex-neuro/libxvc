@@ -130,3 +130,8 @@ add_executable(test_update_modern test_update_modern.cc)
 target_link_libraries(test_update_modern PRIVATE xvc Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
 target_compile_features(test_update_modern PRIVATE cxx_std_23)
 catch_discover_tests(test_update_modern)
+
+# Executed by the loopback HTTP fixture; never contacts a camera or installs a package.
+add_executable(updater_transfer_probe updater_transfer_probe.cc)
+target_link_libraries(updater_transfer_probe PRIVATE xvc)
+target_compile_features(updater_transfer_probe PRIVATE cxx_std_23)

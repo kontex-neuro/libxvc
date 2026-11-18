@@ -64,3 +64,19 @@ with the API version, and /build_version with the separate build marker. Legacy
 device_type labels are ignored without assigning a product; modern conflicting
 product labels still fail. Operation/verification failures do not prove rollback,
 and fallback messages make no restoration claim.
+
+## Offline device updates
+
+Internet access belongs to the PC. The client selects the fixed HTTPS device
+catalog entry and verifies downloaded size/SHA-256. Device packages carry the
+archive and package.json SHA-256, role and channel in a strict `tv1-` transport
+basename. Prepare and multipart upload use exactly the same basename; the local
+and canonical cloud names and bytes do not change. Legacy filename/hash/size JSON
+remains compatible. Normal legacy platform-only updates retain their old names.
+
+The device trusts the selected PC transfer, verifies received hashes locally and
+checks actual hardware/profile, metadata and inventory before activation. This is
+PC authority over the existing v1 session, not an independent device cloud check
+or signing service. Updater1.2.0 and `pc_verified_package_v1` are required; the old
+online-only1.1.0 and packages declaring it are refused by the offline pilot. No
+cloud/device actions or hardware qualification follow from loopback fixtures.

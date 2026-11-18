@@ -1,4 +1,5 @@
 #include "device.h"
+#include <algorithm>
 
 #include <cpr/cpr.h>
 
@@ -185,6 +186,32 @@ Result<Handshake> perform_handshake(const DeviceEndpoint &device, std::chrono::m
     return parse_handshake_response(response.text);
 }
 
+Result<std::string> transfer_filename(const Artifact &artifact, std::string_view environment)
+{
+    auto invalid = [](std::string message) -> Result<std::string> {
+        return std::unexpected(Error{ErrorCode::MalformedResponse, std::move(message)});
+    };
+    if (environment != "dev" && environment != "release")
+        return invalid("Invalid transfer environment");
+    auto digest = [](std::string_view value) {
+        return value.size() == 64 && std::all_of(value.begin(), value.end(), [](char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+        });
+    };
+    if (artifact.role.empty() && artifact.package_metadata_sha256.empty()) {
+        if (artifact.name.empty() || artifact.name.size() > 255 || artifact.name == "." || artifact.name == ".."
+            || artifact.name.find_first_of("/\\:\"") != std::string::npos
+            || std::any_of(artifact.name.begin(), artifact.name.end(), [](unsigned char c) { return c < 32 || c == 127; }))
+            return invalid("Transfer filename must be a plain basename");
+        return artifact.name;
+    }
+    if ((artifact.role != "application" && artifact.role != "updater-migration")
+        || !digest(artifact.sha256) || !digest(artifact.package_metadata_sha256))
+        return invalid("Device package transfer requires the PC-verified archive and metadata hashes");
+    return std::format("tv1-{}-{}-{}-{}.tar.xz", artifact.role, environment,
+                       artifact.sha256, artifact.package_metadata_sha256);
+}
+
 Result<PreparedTransfer> prepare_transfer(
     const DeviceEndpoint &device, const Handshake &handshake, const DownloadedArtifact &artifact,
     std::chrono::milliseconds timeout, std::string_view environment
@@ -194,8 +221,10 @@ Result<PreparedTransfer> prepare_transfer(
 
     // The device validates these against what actually arrives, so they must describe the
     // artifact as verified rather than as advertised.
+    auto filename = transfer_filename(artifact.artifact, environment);
+    if (!filename) return std::unexpected(filename.error());
     nlohmann::json body{
-        {"filename", artifact.artifact.name},
+        {"filename", *filename},
         {"file_hash", artifact.artifact.sha256},
         {"file_size", artifact.artifact.size},
     };
@@ -209,7 +238,9 @@ Result<PreparedTransfer> prepare_transfer(
         cpr::Post(cpr::Url{url}, headers, cpr::Body{body.dump()}, cpr::Timeout{timeout});
 
     if (auto error = transport_error(response, url)) return std::unexpected(*error);
-    return parse_prepare_response(response.text);
+    auto transfer = parse_prepare_response(response.text);
+    if (transfer) transfer->upload_filename = *filename;
+    return transfer;
 }
 
 Result<void> transfer_file_and_apply_update(
@@ -235,7 +266,8 @@ Result<void> transfer_file_and_apply_update(
     const auto url =
         std::format("{}/transfer/{}", base_url(device, device.update_port), transfer.transfer_id);
 
-    cpr::Multipart multipart{{cpr::Part{"file", cpr::File{file.string()}}}};
+    const auto filename = transfer.upload_filename.empty() ? file.filename().string() : transfer.upload_filename;
+    cpr::Multipart multipart{{cpr::Part{"file", cpr::File{file.string(), filename}}}};
 
     // Per-call state (ADR 0003). The ported implementation used a lambda-local
     // `static size_t last_progress`, which is shared across every invocation in the process:

@@ -18,6 +18,7 @@ struct Handshake {
 
 struct PreparedTransfer {
     std::string transfer_id;
+    std::string upload_filename;
 };
 
 // ---------------------------------------------------------------------------------------
@@ -28,6 +29,9 @@ struct PreparedTransfer {
 // Tier 1 coverage with no hardware. That keeps the device protocol's decoding rules
 // verifiable on a developer checkout instead of only on the bench.
 // ---------------------------------------------------------------------------------------
+
+// PC approval travels in a v1-compatible basename; canonical cloud/local names stay unchanged.
+Result<std::string> transfer_filename(const Artifact &artifact, std::string_view environment);
 
 // Body of GET /handshake. Success requires status == "ready" plus a token; `expires` is a
 // UTC epoch timestamp.
@@ -66,8 +70,9 @@ Result<Handshake> perform_handshake(
 
 // POST http://<host>:<update_port>/prepare-transfer
 //
-// Sends filename / file_hash / file_size so the device can validate the upload before it
-// begins. Returns PreparedTransfer rather than using the old out-parameter.
+// Sends filename / file_hash / file_size. Device packages use the strict PC-approved
+// transport basename; cloud and local archive names are unchanged. PreparedTransfer
+// retains the exact basename for the multipart upload.
 Result<PreparedTransfer> prepare_transfer(
     const DeviceEndpoint &device, const Handshake &handshake, const DownloadedArtifact &artifact,
     std::chrono::milliseconds timeout = std::chrono::seconds{10}, std::string_view environment = "release"
@@ -77,7 +82,8 @@ Result<PreparedTransfer> prepare_transfer(
 //
 // Uploads the tarball as multipart field "file" with Bearer auth, and the device applies the
 // update. Only the tarball is sent -- manifest.json is client-side metadata (ADR 0008), so
-// no device-server protocol change is implied.
+// v1 JSON fields remain compatible. Modern transfers bind PC-approved metadata in the
+// upload basename retained by both legacy and modern services.
 //
 // `progress` follows the ProgressCallback contract in types.h: worker thread, throttled,
 // returning false cancels. Progress state is per-call, never static.

@@ -109,14 +109,15 @@ bool updater_ready(std::string_view input) {
     auto value=Json::parse(input,nullptr,false);
     if(!value.is_object()) return false;
     auto version=Version::from_string(text(value,"updater_version"));
-    auto minimum=Version::from_string("1.1.0");
+    auto minimum=Version::from_string("1.2.0");
     return version && *version>=*minimum && number(value,"protocol_version")==1
            && flag(value,"ready_for_updates")
            && value.contains("pending_application_transaction") && value["pending_application_transaction"].is_boolean()
            && !value["pending_application_transaction"].get<bool>()
            && value.contains("recovery_error") && value["recovery_error"].is_null()
            && value.contains("compatibility") && value["compatibility"].is_array()
-           && std::find(value["compatibility"].begin(),value["compatibility"].end(),"device_package_v1")!=value["compatibility"].end();
+           && std::find(value["compatibility"].begin(),value["compatibility"].end(),"device_package_v1")!=value["compatibility"].end()
+           && std::find(value["compatibility"].begin(),value["compatibility"].end(),"pc_verified_package_v1")!=value["compatibility"].end();
 }
 
 bool application_requires_framelab(const DeviceDescriptor &device,const VersionEntry &target) {
@@ -226,6 +227,9 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const De
     if(environment!="release" && environment!="dev") return std::unexpected(malformed("Invalid update environment"));
     if(!compatible_api(device))
         return std::unexpected(Error{ErrorCode::VersionNotFound,"No compatible update can be selected for this device API; application build version cannot substitute for API compatibility"});
+    const auto advertised_updater=Version::from_string(updater_version);
+    if(advertised_updater && *advertised_updater<Version(1,2,0))
+        return std::unexpected(Error{ErrorCode::VersionNotFound,"This modern updater lacks offline PC approval support; reviewed maintenance is required before updating"});
     const bool legacy=!device.modern;
     if(legacy && !allow_legacy_aio_confirmation) return std::unexpected(malformed("Unidentified legacy device requires explicit approved AIO migration confirmation"));
     const std::string product=legacy?"aio":device.product_id;
@@ -233,6 +237,9 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const De
     if(profile.empty()) return std::unexpected(Error{ErrorCode::PlatformNotFound,"Device runtime profile is not established; no platform fallback is allowed"});
     const VersionEntry *best=nullptr;
     for(const auto &entry:matrix.device_versions) {
+        const auto application=role(entry,"application");
+        const auto offline_minimum=application?Version::from_string(application->minimum_updater):std::nullopt;
+        if(!offline_minimum || *offline_minimum<Version(1,2,0)) continue;
         if(entry.product_id!=product || entry.profile!=profile || entry.platform!="linux-arm64"
            || entry.environment!=environment || entry.status!="stable" || !role(entry,"application")
            || (legacy && !role(entry,"updater-migration"))) continue;

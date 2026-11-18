@@ -250,3 +250,18 @@ TEST_CASE("device: full transfer applies an update", "[update][device][.integrat
     );
     CHECK(result.has_value());
 }
+
+TEST_CASE("PC approval basename preserves legacy naming and binds package metadata", "[update][device]") {
+    Artifact legacy{.name="canonical.tar.xz",.size=7,.sha256=std::string(64,'a')};
+    auto name=transfer_filename(legacy,"release");REQUIRE(name);REQUIRE(*name==legacy.name);
+    auto approved=legacy;approved.role="updater-migration";approved.package_metadata_sha256=std::string(64,'b');
+    name=transfer_filename(approved,"dev");REQUIRE(name);
+    REQUIRE(*name=="tv1-updater-migration-dev-"+std::string(64,'a')+"-"+std::string(64,'b')+".tar.xz");
+    REQUIRE(name->size()<255);REQUIRE(approved.name=="canonical.tar.xz");
+    approved.role="application";REQUIRE(transfer_filename(approved,"release"));
+    REQUIRE_FALSE(transfer_filename(approved,"DEV"));
+    approved.package_metadata_sha256.clear();REQUIRE_FALSE(transfer_filename(approved,"dev"));
+    approved.package_metadata_sha256=std::string(64,'A');REQUIRE_FALSE(transfer_filename(approved,"dev"));
+    approved.package_metadata_sha256=std::string(64,'b');approved.role="firmware";REQUIRE_FALSE(transfer_filename(approved,"dev"));
+    legacy.name="../unsafe.tar.xz";REQUIRE_FALSE(transfer_filename(legacy,"release"));
+}

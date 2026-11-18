@@ -11,7 +11,7 @@ Json device_entry(std::string product="aio",std::string version="1.4.2") {
                 {"profile",profile},{"source_commit",std::string(40,'a')},{"environment","release"},{"status","stable"},
                 {"download_base","/dist/v"+version+"/"+product+"/"+profile+"/linux-arm64/"}};
     entry["files"]=Json::array({{{"name","application.tar.xz"},{"size",1},{"sha256",std::string(64,'b')},
-                               {"role","application"},{"minimum_updater","1.1.0"},{"package_metadata_sha256",std::string(64,'c')}},
+                               {"role","application"},{"minimum_updater","1.2.0"},{"package_metadata_sha256",std::string(64,'c')}},
                               {{"name","migration.tar.xz"},{"size",1},{"sha256",std::string(64,'d')},
                                {"role","updater-migration"},{"minimum_updater","0.0.1"},{"package_metadata_sha256",std::string(64,'e')}}});
     return entry;
@@ -32,10 +32,10 @@ TEST_CASE("Modern catalog retains legacy metadata and filters by product profile
     auto catalog=matrix({device_entry("aio"),device_entry("nvr")});
     auto identity=parse_device_descriptor(descriptor().dump(),R"({"version":"1.4.1"})"); REQUIRE(identity);
     REQUIRE(identity->api_version==Version(0,1,2)); REQUIRE(identity->build_version==Version(1,4,1));
-    auto plan=plan_device_update(catalog,*identity,"1.1.0"); REQUIRE(plan);
+    auto plan=plan_device_update(catalog,*identity,"1.2.0"); REQUIRE(plan);
     REQUIRE(plan->target.product_id=="aio"); REQUIRE(plan->target.version==Version(1,4,2));
     identity->profile="aio-unmatched";
-    REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.1.0"));
+    REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.2.0"));
 }
 
 TEST_CASE("FrameLab does not imply AIO digital IO and malformed flags never enable controls", "[update][modern]") {
@@ -63,17 +63,17 @@ TEST_CASE("DEV selection is explicit and API compatibility is distinct from appl
     auto dev=device_entry(); dev["environment"]="dev"; dev["download_base"]="/dev/v1.4.2/aio/aio-jetson-orin-nx-l4t36.4.3-aarch64-cp310/linux-arm64/";
     auto catalog=matrix({dev});
     auto identity=parse_device_descriptor(descriptor().dump(),R"({"version":"1.4.1"})"); REQUIRE(identity);
-    REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.1.0"));
-    REQUIRE(plan_device_update(catalog,*identity,"1.1.0","dev"));
+    REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.2.0"));
+    REQUIRE(plan_device_update(catalog,*identity,"1.2.0","dev"));
     identity->api_version=Version(2,0,0);
-    auto incompatible=plan_device_update(catalog,*identity,"1.1.0","dev");
+    auto incompatible=plan_device_update(catalog,*identity,"1.2.0","dev");
     REQUIRE_FALSE(incompatible);REQUIRE(incompatible.error().code==ErrorCode::VersionNotFound);
 }
 
 TEST_CASE("Modern downgrades and conflicting cohort source identities are rejected", "[update][modern]") {
     auto catalog=matrix({device_entry()});
     auto identity=parse_device_descriptor(descriptor().dump(),R"({"version":"1.4.3"})"); REQUIRE(identity);
-    auto plan=plan_device_update(catalog,*identity,"1.1.0"); REQUIRE_FALSE(plan); REQUIRE(plan.error().code==ErrorCode::DowngradeRejected);
+    auto plan=plan_device_update(catalog,*identity,"1.2.0"); REQUIRE_FALSE(plan); REQUIRE(plan.error().code==ErrorCode::DowngradeRejected);
     auto conflicting=device_entry("nvr"); conflicting["source_commit"]=std::string(40,'f');
     Json data={{"versions",Json::array()},{"device_versions",Json::array({device_entry(),conflicting})}};
     REQUIRE_FALSE(parse_versions_json(data.dump()));
@@ -104,8 +104,8 @@ TEST_CASE("Cloud requires explicit HTTPS with no userinfo query or downgrade URL
 }
 
 TEST_CASE("Updater health refuses pending recovery or malformed readiness", "[update][modern]") {
-    const Json healthy={{"updater_version","1.1.0"},{"protocol_version",1},
-        {"compatibility",Json::array({"device_package_v1"})},{"ready_for_updates",true},
+    const Json healthy={{"updater_version","1.2.0"},{"protocol_version",1},
+        {"compatibility",Json::array({"device_package_v1","pc_verified_package_v1"})},{"ready_for_updates",true},
         {"pending_application_transaction",false},{"recovery_error",nullptr}};
     REQUIRE(updater_ready(healthy.dump()));
     for(const auto &field:{"ready_for_updates","pending_application_transaction","recovery_error"}) {
@@ -122,6 +122,8 @@ TEST_CASE("Updater health refuses pending recovery or malformed readiness", "[up
     value=healthy;value["protocol_version"]=2;REQUIRE_FALSE(updater_ready(value.dump()));
     value=healthy;value.erase("compatibility");REQUIRE_FALSE(updater_ready(value.dump()));
     value=healthy;value["compatibility"]=Json::array({"legacy_only"});REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["updater_version"]="1.1.0";REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["compatibility"]=Json::array({"device_package_v1","https_catalog_v1"});REQUIRE_FALSE(updater_ready(value.dump()));
     REQUIRE_FALSE(updater_ready("not JSON"));
 }
 
@@ -190,7 +192,22 @@ TEST_CASE("Legacy labels do not become modern product identity and modern confli
     REQUIRE(legacy);REQUIRE_FALSE(legacy->modern);REQUIRE(legacy->product_id.empty());REQUIRE(legacy->profile.empty());
     REQUIRE(legacy->api_version==Version(0,1,3));REQUIRE(legacy->build_version==Version(0,1,3));
     auto catalog=matrix({device_entry("aio"),device_entry("nvr")});
-    REQUIRE_FALSE(plan_device_update(catalog,*legacy,"1.1.0"));
+    REQUIRE_FALSE(plan_device_update(catalog,*legacy,"1.2.0"));
     auto modern=descriptor("aio");modern["device_type"]="nvr";
     REQUIRE_FALSE(parse_device_descriptor(modern.dump(),R"({"version":"1.4.2"})"));
+}
+
+TEST_CASE("Offline client refuses previously published online-only package minima", "[update][modern]") {
+    auto old=device_entry();old["files"][0]["minimum_updater"]="1.1.0";
+    auto catalog=matrix({old});
+    auto legacy=parse_device_descriptor(R"({"version":"0.1.0"})",R"({"version":"0.0.32"})");REQUIRE(legacy);
+    auto result=plan_device_update(catalog,*legacy,"","release",true);
+    REQUIRE_FALSE(result);REQUIRE(result.error().code==ErrorCode::VersionNotFound);
+}
+
+TEST_CASE("Online-only modern updater is refused before attempting legacy migration", "[update][modern]") {
+    auto catalog=matrix({device_entry()});
+    auto device=parse_device_descriptor(descriptor().dump(),R"({"version":"1.4.1"})");REQUIRE(device);
+    auto plan=plan_device_update(catalog,*device,"1.1.0");
+    REQUIRE_FALSE(plan);REQUIRE(plan.error().code==ErrorCode::VersionNotFound);
 }
