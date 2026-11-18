@@ -1,4 +1,5 @@
 #include "artifact.h"
+#include "cloud_tls.h"
 
 #include <cpr/cpr.h>
 
@@ -443,10 +444,13 @@ Result<DownloadedArtifact> download_artifact(
                 return true;
             };
 
-            auto response = cpr::Download(
-                file, cpr::Url{url}, cpr::ProgressCallback{on_progress},
-                cpr::LowSpeed{MIN_BYTES_PER_SEC, LOW_SPEED_WINDOW}, cpr::Redirect{false}
-            );
+            cpr::Session session;
+            if (auto trust = detail::configure_cloud_tls(session); !trust) return std::unexpected(trust.error());
+            session.SetUrl(cpr::Url{url});
+            session.SetProgressCallback(cpr::ProgressCallback{on_progress});
+            session.SetLowSpeed(cpr::LowSpeed{MIN_BYTES_PER_SEC, LOW_SPEED_WINDOW});
+            session.SetRedirect(cpr::Redirect{false});
+            auto response = session.Download(file);
 
             file.close();  // must be closed before verify/rename, especially on Windows
 

@@ -7,6 +7,7 @@ target_sources(xvc
         ${CMAKE_CURRENT_SOURCE_DIR}/ws_client.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/server.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/validator.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/update/cloud_tls.h
         ${CMAKE_CURRENT_SOURCE_DIR}/update/artifact.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/update/manifest.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/update/plan.cc

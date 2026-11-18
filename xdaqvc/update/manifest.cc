@@ -1,4 +1,5 @@
 #include "manifest.h"
+#include "cloud_tls.h"
 
 #include <cpr/cpr.h>
 
@@ -255,7 +256,12 @@ Result<VersionMatrix> fetch_versions_json(const std::string &cloud_base_url)
     while (!base.empty() && base.back() == '/') base.pop_back();
     const auto url = std::format("{}/versions.json", base);
 
-    auto response = cpr::Get(cpr::Url{url}, cpr::Timeout{FETCH_TIMEOUT}, cpr::Redirect{false});
+    cpr::Session session;
+    if (auto trust = detail::configure_cloud_tls(session); !trust) return std::unexpected(trust.error());
+    session.SetUrl(cpr::Url{url});
+    session.SetTimeout(cpr::Timeout{FETCH_TIMEOUT});
+    session.SetRedirect(cpr::Redirect{false});
+    auto response = session.Get();
 
     if (response.error.code != cpr::ErrorCode::OK) {
         return std::unexpected(Error{
