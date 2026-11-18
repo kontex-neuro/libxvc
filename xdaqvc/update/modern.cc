@@ -250,18 +250,36 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const De
         return std::unexpected(Error{ErrorCode::DowngradeRejected,"Device application is newer than this catalog; downgrade is blocked"});
     auto updater=Version::from_string(updater_version), minimum=Version::from_string(role(*best,"application")->minimum_updater);
     if(!minimum) return std::unexpected(malformed("Application minimum updater is missing"));
-    bool migration=legacy || !updater || *updater<*minimum;
+    bool migration=!updater || *updater<*minimum;
     if(migration && !role(*best,"updater-migration"))
         return std::unexpected(Error{ErrorCode::VersionNotFound,"Matching updater migration is required before this application package"});
-    DeviceUpdatePlan plan{device,*best,!device.build_version || *device.build_version<best->version || migration,migration,legacy,std::string(environment)};
+    DeviceUpdatePlan plan{device,*best,!device.build_version || *device.build_version<best->version || migration,migration,legacy && migration,std::string(environment)};
     return plan;
 }
 
 Result<void> install_device_release(const std::string &cloud,const DeviceEndpoint &endpoint,const DeviceUpdatePlan &plan,
                                    ProgressCallback progress,LogCallback on_log,UpdatePhaseCallback phase) {
     auto notify=[&](std::string_view message){if(phase)phase(message);};
+    bool migration=plan.migration_required;
+    if(migration) {
+        auto caps=get(base(endpoint,endpoint.update_port)+"/capabilities");
+        if(caps) {
+            const auto application=role(plan.target,"application");
+            const auto current=Version::from_string(text(*caps,"updater_version"));
+            const auto minimum=application?Version::from_string(application->minimum_updater):std::nullopt;
+            if(!updater_ready(caps->dump()) || !current || !minimum || *current<*minimum)
+                return std::unexpected(Error{ErrorCode::DeviceUpdateFailed,"Existing updater is not ready for offline application updates; inspect recovery diagnostics before retrying"});
+            if(!caps->contains("device") || !(*caps)["device"].is_object()
+               || text((*caps)["device"],"product_id")!=plan.target.product_id
+               || text((*caps)["device"],"release_profile")!=plan.target.profile)
+                return std::unexpected(malformed("Updater device identity differs from the selected package"));
+            migration=false;
+        } else if(caps.error().code!=ErrorCode::HttpError || caps.error().http_status!=404) {
+            return std::unexpected(caps.error());
+        }
+    }
     std::vector<std::string_view> roles;
-    if(plan.migration_required) roles.push_back("updater-migration");
+    if(migration) roles.push_back("updater-migration");
     roles.push_back("application");
     for(auto wanted:roles) {
         auto artifact=role(plan.target,wanted);

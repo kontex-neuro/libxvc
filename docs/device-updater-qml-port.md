@@ -80,3 +80,8 @@ PC authority over the existing v1 session, not an independent device cloud check
 or signing service. Updater1.2.0 and `pc_verified_package_v1` are required; the old
 online-only1.1.0 and packages declaring it are refused by the offline pilot. No
 cloud/device actions or hardware qualification follow from loopback fixtures.
+
+A legacy application can resume after its updater has already migrated. Fresh
+capabilities are checked before retrying a cached plan, so an interrupted
+application transfer does not upload the legacy migration again. Pending recovery
+refuses new bytes. Loopback fixtures exercise ready, legacy404 and not-ready paths.

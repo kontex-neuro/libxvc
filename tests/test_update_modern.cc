@@ -211,3 +211,11 @@ TEST_CASE("Online-only modern updater is refused before attempting legacy migrat
     auto plan=plan_device_update(catalog,*device,"1.1.0");
     REQUIRE_FALSE(plan);REQUIRE(plan.error().code==ErrorCode::VersionNotFound);
 }
+
+TEST_CASE("Legacy application can resume after successful updater migration", "[update][modern]") {
+    auto catalog=matrix({device_entry()});
+    auto device=parse_device_descriptor(R"({"version":"0.1.0"})",R"({"version":"0.0.32"})");REQUIRE(device);
+    auto plan=plan_device_update(catalog,*device,"1.2.0","release",true);REQUIRE(plan);
+    REQUIRE(plan->update_available);REQUIRE_FALSE(plan->migration_required);
+    REQUIRE_FALSE(plan->legacy_aio_confirmation);
+}
