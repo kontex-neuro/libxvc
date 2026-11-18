@@ -52,10 +52,9 @@ inline constexpr std::string_view STREAM_END_SENTINEL = "__STREAM_END__";
 // Device operations (Tier 3 -- each needs a reachable device)
 // ---------------------------------------------------------------------------------------
 
-// GET http://<host>:<server_port>/api_version
+// GET http://<host>:<server_port>/build_version
 //
-// Delegates to xvc::Server::api_version() rather than issuing its own request, so exactly
-// one HTTP call site exists for that endpoint (ADR 0010).
+// Reads the application build identity. API compatibility is discovered separately.
 Result<Version> get_device_version(
     const DeviceEndpoint &device, std::chrono::milliseconds timeout = std::chrono::seconds{2}
 );
@@ -71,7 +70,7 @@ Result<Handshake> perform_handshake(
 // begins. Returns PreparedTransfer rather than using the old out-parameter.
 Result<PreparedTransfer> prepare_transfer(
     const DeviceEndpoint &device, const Handshake &handshake, const DownloadedArtifact &artifact,
-    std::chrono::milliseconds timeout = std::chrono::seconds{10}
+    std::chrono::milliseconds timeout = std::chrono::seconds{10}, std::string_view environment = "release"
 );
 
 // POST http://<host>:<update_port>/transfer/<transfer_id>

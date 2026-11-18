@@ -125,3 +125,8 @@ target_compile_options(test_camera
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>
 )
 catch_discover_tests(test_camera)
+
+add_executable(test_update_modern test_update_modern.cc)
+target_link_libraries(test_update_modern PRIVATE xvc Catch2::Catch2WithMain nlohmann_json::nlohmann_json)
+target_compile_features(test_update_modern PRIVATE cxx_std_23)
+catch_discover_tests(test_update_modern)

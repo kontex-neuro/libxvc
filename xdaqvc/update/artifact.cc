@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "manifest.h"
+#include "modern.h"
 
 // ADR 0001 / ADR 0010: the platform split for SHA-256 is confined to this file. Nothing else
 // in the codebase sees a crypto #ifdef.
@@ -351,6 +352,7 @@ Result<DownloadedArtifact> download_artifact(
     const std::optional<fs::path> &download_dir
 )
 {
+    if (!secure_cloud_url(cloud_base_url)) return std::unexpected(Error{ErrorCode::MalformedResponse, "Artifact cloud URL must use HTTPS"});
     if (entry.files.empty()) {
         return std::unexpected(
             Error{ErrorCode::MalformedResponse, "Version entry carries no files[0] artifact"}
@@ -366,6 +368,10 @@ Result<DownloadedArtifact> download_artifact(
     }
 
     const auto &artifact = entry.files.front();
+    if (artifact.name.empty() || artifact.name == "." || artifact.name == ".."
+        || artifact.name.find_first_of("/\\:") != std::string::npos
+        || std::any_of(artifact.name.begin(),artifact.name.end(),[](unsigned char c){return c < 32 || c == 127;}))
+        return std::unexpected(Error{ErrorCode::MalformedResponse,"Unsafe artifact filename"});
     const auto url = join_url(cloud_base_url, *entry.download_base, artifact.name);
 
     const auto dir = download_dir.value_or(fs::temp_directory_path() / "xvc-update");
@@ -439,7 +445,7 @@ Result<DownloadedArtifact> download_artifact(
 
             auto response = cpr::Download(
                 file, cpr::Url{url}, cpr::ProgressCallback{on_progress},
-                cpr::LowSpeed{MIN_BYTES_PER_SEC, LOW_SPEED_WINDOW}
+                cpr::LowSpeed{MIN_BYTES_PER_SEC, LOW_SPEED_WINDOW}, cpr::Redirect{false}
             );
 
             file.close();  // must be closed before verify/rename, especially on Windows

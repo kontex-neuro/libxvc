@@ -11,6 +11,7 @@ target_sources(xvc
         ${CMAKE_CURRENT_SOURCE_DIR}/update/manifest.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/update/plan.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/update/device.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/update/modern.cc
         ${CMAKE_CURRENT_SOURCE_DIR}/port_pool.h
         ${CMAKE_CURRENT_SOURCE_DIR}/validator.h
     PUBLIC
@@ -35,6 +36,7 @@ target_sources(xvc
             ${CMAKE_CURRENT_SOURCE_DIR}/update/manifest.h
             ${CMAKE_CURRENT_SOURCE_DIR}/update/plan.h
             ${CMAKE_CURRENT_SOURCE_DIR}/update/device.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/update/modern.h
 )
 set_target_properties(xvc 
     PROPERTIES 

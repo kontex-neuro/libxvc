@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <format>
 #include <nlohmann/json.hpp>
+#include <regex>
+#include "modern.h"
 
 namespace xvc::update
 {
@@ -179,6 +181,57 @@ Result<VersionMatrix> parse_versions_json(std::string_view json_text)
         matrix.versions.push_back(std::move(*entry));
     }
 
+    if (auto modern = json.find("device_versions"); modern != json.end()) {
+        if (!modern->is_array()) return std::unexpected(Error{ErrorCode::MalformedResponse, "device_versions must be an array"});
+        std::map<std::string, std::string> identities;
+        const std::regex sha("[0-9a-f]{64}"), commit("[0-9a-f]{40}"),
+                         profile_name("(aio|nvr)-[a-z0-9]+([.-][a-z0-9]+)*"),
+                         filename("[A-Za-z0-9][A-Za-z0-9._-]*\\.tar\\.xz");
+        for (const auto &node : *modern) {
+            auto entry = parse_entry(node, true, "device_versions");
+            if (!entry) return std::unexpected(entry.error());
+            entry->product_id = optional_string(node, "product_id");
+            entry->profile = optional_string(node, "profile");
+            entry->source_commit = optional_string(node, "source_commit");
+            const auto product = entry->product_id;
+            const auto channel = entry->environment == "release" ? "dist" : "dev";
+            const auto expected_base = std::format("/{}/v{}/{}/{}/linux-arm64/", channel,
+                                                   entry->version.to_string(), product, entry->profile);
+            if ((product != "aio" && product != "nvr") || entry->platform != "linux-arm64"
+                || !entry->profile.starts_with(product + "-") || !std::regex_match(entry->source_commit, commit)
+                || !std::regex_match(entry->profile,profile_name) || entry->version.to_string()!=optional_string(node,"version")
+                || (entry->environment != "release" && entry->environment != "dev")
+                || entry->download_base != expected_base
+                || (!optional_string(node,"device_type").empty() && optional_string(node,"device_type") != product))
+                return std::unexpected(Error{ErrorCode::MalformedResponse, "Device catalog identity/path mismatch"});
+            if (auto old = identities.find(entry->version.to_string()); old != identities.end() && old->second != entry->source_commit)
+                return std::unexpected(Error{ErrorCode::MalformedResponse, "Device version names conflicting source commits"});
+            identities[entry->version.to_string()] = entry->source_commit;
+            entry->files.clear();
+            std::vector<std::string> roles;
+            for (const auto &file : node.at("files")) {
+                auto artifact = parse_artifact(file, "device_versions.files");
+                if (!artifact) return std::unexpected(artifact.error());
+                artifact->role = optional_string(file,"role");
+                artifact->package_metadata_sha256 = optional_string(file,"package_metadata_sha256");
+                artifact->minimum_updater = optional_string(file,"minimum_updater");
+                if ((artifact->role != "application" && artifact->role != "updater-migration")
+                    || !std::regex_match(artifact->sha256,sha) || !std::regex_match(artifact->package_metadata_sha256,sha)
+                    || !Version::from_string(artifact->minimum_updater)
+                    || Version::from_string(artifact->minimum_updater)->to_string()!=artifact->minimum_updater
+                    || !std::regex_match(artifact->name,filename) || artifact->size==0 || artifact->size>(std::uint64_t{2}<<30)
+                    || artifact->name.find_first_of("/\\:") != std::string::npos
+                    || std::find(roles.begin(),roles.end(),artifact->role) != roles.end())
+                    return std::unexpected(Error{ErrorCode::MalformedResponse, "Invalid device artifact role/hash/version"});
+                roles.push_back(artifact->role);
+                entry->files.push_back(*artifact);
+            }
+            if (std::find(roles.begin(),roles.end(),"application") == roles.end())
+                return std::unexpected(Error{ErrorCode::MalformedResponse, "Device application artifact missing"});
+            matrix.device_versions.push_back(*entry);
+        }
+    }
+
     return matrix;
 }
 
@@ -195,13 +248,14 @@ Result<VersionEntry> parse_manifest_json(std::string_view json_text)
 
 Result<VersionMatrix> fetch_versions_json(const std::string &cloud_base_url)
 {
+    if (!secure_cloud_url(cloud_base_url)) return std::unexpected(Error{ErrorCode::MalformedResponse, "Cloud URL must use explicit HTTPS"});
     // Join without duplicating the separator; cloud_base_url may or may not carry a trailing
     // slash depending on how the caller configured it.
     auto base = cloud_base_url;
     while (!base.empty() && base.back() == '/') base.pop_back();
     const auto url = std::format("{}/versions.json", base);
 
-    auto response = cpr::Get(cpr::Url{url}, cpr::Timeout{FETCH_TIMEOUT});
+    auto response = cpr::Get(cpr::Url{url}, cpr::Timeout{FETCH_TIMEOUT}, cpr::Redirect{false});
 
     if (response.error.code != cpr::ErrorCode::OK) {
         return std::unexpected(Error{

@@ -1,0 +1,142 @@
+#include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
+#include "update/update.h"
+using namespace xvc::update;
+using Json=nlohmann::json;
+
+namespace {
+Json device_entry(std::string product="aio",std::string version="1.4.2") {
+    const auto profile=product=="aio"?"aio-jetson-orin-nx-l4t36.4.3-aarch64-cp310":"nvr-cm5-cp310";
+    Json entry={{"version",version},{"platform","linux-arm64"},{"product_id",product},{"device_type",product},
+                {"profile",profile},{"source_commit",std::string(40,'a')},{"environment","release"},{"status","stable"},
+                {"download_base","/dist/v"+version+"/"+product+"/"+profile+"/linux-arm64/"}};
+    entry["files"]=Json::array({{{"name","application.tar.xz"},{"size",1},{"sha256",std::string(64,'b')},
+                               {"role","application"},{"minimum_updater","1.1.0"},{"package_metadata_sha256",std::string(64,'c')}},
+                              {{"name","migration.tar.xz"},{"size",1},{"sha256",std::string(64,'d')},
+                               {"role","updater-migration"},{"minimum_updater","0.0.1"},{"package_metadata_sha256",std::string(64,'e')}}});
+    return entry;
+}
+Json descriptor(std::string product="aio") {
+    return {{"version","0.1.2"},{"product_id",product},{"device_descriptor_version",1},
+            {"release_profile",product=="aio"?"aio-jetson-orin-nx-l4t36.4.3-aarch64-cp310":"nvr-cm5-cp310"},
+            {"capabilities",{{"framelab",{{"supported",true},{"enabled",true},{"ready",true}}},
+                             {"digital_io",{{"supported",nullptr},{"enabled",false},{"ready",false},{"state","deferred"}}}}}};
+}
+VersionMatrix matrix(std::initializer_list<Json> entries) {
+    Json data={{"versions",Json::array()},{"device_versions",entries}};
+    auto parsed=parse_versions_json(data.dump()); REQUIRE(parsed); return *parsed;
+}
+}
+
+TEST_CASE("Modern catalog retains legacy metadata and filters by product profile instead of ARM64", "[update][modern]") {
+    auto catalog=matrix({device_entry("aio"),device_entry("nvr")});
+    auto identity=parse_device_descriptor(descriptor().dump(),R"({"version":"1.4.1"})"); REQUIRE(identity);
+    REQUIRE(identity->api_version==Version(0,1,2)); REQUIRE(identity->build_version==Version(1,4,1));
+    auto plan=plan_device_update(catalog,*identity,"1.1.0"); REQUIRE(plan);
+    REQUIRE(plan->target.product_id=="aio"); REQUIRE(plan->target.version==Version(1,4,2));
+    identity->profile="aio-unmatched";
+    REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.1.0"));
+}
+
+TEST_CASE("FrameLab does not imply AIO digital IO and malformed flags never enable controls", "[update][modern]") {
+    auto input=descriptor();
+    auto identity=parse_device_descriptor(input.dump(),R"({"version":"1.4.1"})"); REQUIRE(identity);
+    REQUIRE(identity->framelab_ready); REQUIRE_FALSE(identity->digital_io_supported.has_value()); REQUIRE_FALSE(identity->digital_io_ready);
+    input["capabilities"]["framelab"]["ready"]="true";
+    identity=parse_device_descriptor(input.dump(),R"({"version":"1.4.1"})"); REQUIRE(identity); REQUIRE_FALSE(identity->framelab_ready);
+    input["device_type"]="nvr"; REQUIRE_FALSE(parse_device_descriptor(input.dump(),R"({"version":"1.4.1"})"));
+}
+
+TEST_CASE("Unknown legacy builds require explicit approved AIO migration and never generic feed", "[update][modern]") {
+    auto old=parse_device_descriptor(R"({"version":"0.1.2"})",R"({"version":"x.x.x"})"); REQUIRE(old);
+    REQUIRE_FALSE(old->modern);REQUIRE(old->product_id.empty());REQUIRE(old->profile.empty());
+    auto catalog=matrix({device_entry("aio"),device_entry("nvr")});
+    REQUIRE_FALSE(plan_device_update(catalog,*old,""));
+    REQUIRE(old->product_id.empty());REQUIRE(old->profile.empty());
+    auto plan=plan_device_update(catalog,*old,"","release",true); REQUIRE(plan);
+    REQUIRE(plan->migration_required); REQUIRE(plan->legacy_aio_confirmation); REQUIRE(plan->target.product_id=="aio");
+    catalog.device_versions[0].files.pop_back();
+    REQUIRE_FALSE(plan_device_update(catalog,*old,"","release",true));
+}
+
+TEST_CASE("DEV selection is explicit and API compatibility is distinct from application version", "[update][modern]") {
+    auto dev=device_entry(); dev["environment"]="dev"; dev["download_base"]="/dev/v1.4.2/aio/aio-jetson-orin-nx-l4t36.4.3-aarch64-cp310/linux-arm64/";
+    auto catalog=matrix({dev});
+    auto identity=parse_device_descriptor(descriptor().dump(),R"({"version":"1.4.1"})"); REQUIRE(identity);
+    REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.1.0"));
+    REQUIRE(plan_device_update(catalog,*identity,"1.1.0","dev"));
+    identity->api_version=Version(2,0,0);
+    REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.1.0","dev"));
+}
+
+TEST_CASE("Modern downgrades and conflicting cohort source identities are rejected", "[update][modern]") {
+    auto catalog=matrix({device_entry()});
+    auto identity=parse_device_descriptor(descriptor().dump(),R"({"version":"1.4.3"})"); REQUIRE(identity);
+    auto plan=plan_device_update(catalog,*identity,"1.1.0"); REQUIRE_FALSE(plan); REQUIRE(plan.error().code==ErrorCode::DowngradeRejected);
+    auto conflicting=device_entry("nvr"); conflicting["source_commit"]=std::string(40,'f');
+    Json data={{"versions",Json::array()},{"device_versions",Json::array({device_entry(),conflicting})}};
+    REQUIRE_FALSE(parse_versions_json(data.dump()));
+}
+
+TEST_CASE("Legacy HTTP500 or reset is pending and a success receipt must match all package identity", "[update][modern]") {
+    REQUIRE(migration_upload_pending({ErrorCode::HttpError,"intentional legacy exit75",500}));
+    REQUIRE(migration_upload_pending({ErrorCode::NetworkUnreachable,"reset"}));
+    REQUIRE_FALSE(migration_upload_pending({ErrorCode::HttpError,"rejected",400}));
+    auto catalog=matrix({device_entry()}); const auto &entry=catalog.device_versions.front();
+    Json value={{"status","succeeded"},{"archive_sha256",entry.files[1].sha256},{"version","1.4.2"},
+                {"source_commit",entry.source_commit},{"product_id","aio"},{"profile",entry.profile},
+                {"role","updater-migration"},{"kind","updater-migration"},{"outcome","succeeded"}};
+    auto receipt=parse_operation_receipt(value.dump()); REQUIRE(receipt); REQUIRE(receipt_matches(*receipt,entry,entry.files[1]));
+    receipt->product_id="nvr"; REQUIRE_FALSE(receipt_matches(*receipt,entry,entry.files[1]));
+    REQUIRE_FALSE(parse_operation_receipt(R"({"status":"succeeded"})"));
+    auto log=Json{{"id",entry.files[1].sha256},{"status","failed"},{"error","fingerprint mismatch"}}.dump()+"\n";
+    REQUIRE(migration_failure_log(log,entry.files[1].sha256)=="fingerprint mismatch");
+    REQUIRE_FALSE(migration_failure_log(log,entry.files[0].sha256));
+}
+
+TEST_CASE("Cloud requires explicit HTTPS with no userinfo query or downgrade URL", "[update][modern]") {
+    REQUIRE(secure_cloud_url("https://dl-thorvision-firmware.kontex.io"));
+    for(auto url:{"http://dl-thorvision-firmware.kontex.io","dl-thorvision-firmware.kontex.io","https://user@evil.invalid","https://host.invalid/?redirect=http://other","file:///tmp/package"})
+        REQUIRE_FALSE(secure_cloud_url(url));
+}
+
+TEST_CASE("Updater health refuses pending recovery or malformed readiness", "[update][modern]") {
+    const Json healthy={{"updater_version","1.1.0"},{"protocol_version",1},
+        {"compatibility",Json::array({"device_package_v1"})},{"ready_for_updates",true},
+        {"pending_application_transaction",false},{"recovery_error",nullptr}};
+    REQUIRE(updater_ready(healthy.dump()));
+    for(const auto &field:{"ready_for_updates","pending_application_transaction","recovery_error"}) {
+        auto value=healthy;value.erase(field);REQUIRE_FALSE(updater_ready(value.dump()));
+    }
+    auto value=healthy;value["ready_for_updates"]=false;REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["ready_for_updates"]="true";REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["pending_application_transaction"]=true;REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["pending_application_transaction"]="false";REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["recovery_error"]="previous release failed health";REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["recovery_error"]=false;REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["recovery_error"]=Json::object();REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["updater_version"]="1.0.9";REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["protocol_version"]=2;REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value.erase("compatibility");REQUIRE_FALSE(updater_ready(value.dump()));
+    value=healthy;value["compatibility"]=Json::array({"legacy_only"});REQUIRE_FALSE(updater_ready(value.dump()));
+    REQUIRE_FALSE(updater_ready("not JSON"));
+}
+
+TEST_CASE("A migration receipt cannot satisfy an application even with identical cohort identity", "[update][modern]") {
+    auto catalog=matrix({device_entry()});const auto &entry=catalog.device_versions.front();
+    const auto &artifact=entry.files[0];
+    Json value={{"status","succeeded"},{"archive_sha256",artifact.sha256},{"version","1.4.2"},
+        {"source_commit",entry.source_commit},{"product_id","aio"},{"profile",entry.profile},
+        {"role","updater-migration"},{"kind","updater-migration"},{"outcome","succeeded"}};
+    auto receipt=parse_operation_receipt(value.dump());REQUIRE(receipt);
+    REQUIRE_FALSE(receipt_matches(*receipt,entry,artifact));
+    value["role"]="application";value["kind"]="install";
+    receipt=parse_operation_receipt(value.dump());REQUIRE(receipt);REQUIRE(receipt_matches(*receipt,entry,artifact));
+    REQUIRE(receipt->kind=="install");REQUIRE(receipt->outcome=="succeeded");
+    value["kind"]="rollback";receipt=parse_operation_receipt(value.dump());REQUIRE(receipt);
+    REQUIRE_FALSE(receipt_matches(*receipt,entry,artifact));
+    value["kind"]="updater-migration";REQUIRE_FALSE(parse_operation_receipt(value.dump()));
+    value["kind"]="install";value["status"]="unrecognized";REQUIRE_FALSE(parse_operation_receipt(value.dump()));
+    value["status"]="succeeded";value["role"]="unrecognized";REQUIRE_FALSE(parse_operation_receipt(value.dump()));
+    value.erase("role");REQUIRE_FALSE(parse_operation_receipt(value.dump()));
+}

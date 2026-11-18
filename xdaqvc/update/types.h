@@ -81,6 +81,9 @@ struct Artifact {
     std::string name;
     std::uint64_t size = 0;
     std::string sha256;
+    std::string role;
+    std::string package_metadata_sha256;
+    std::string minimum_updater;
 };
 
 // One entry of `versions[]`. A `manifest.json` is exactly this minus `download_base`, which
@@ -96,6 +99,9 @@ struct VersionEntry {
     std::string deprecation_reason;  // absent from every real entry; defaults to empty
     std::optional<std::string> download_base;
     std::vector<Artifact> files;
+    std::string product_id;
+    std::string profile;
+    std::string source_commit;
 };
 
 struct VersionMatrix {
@@ -104,6 +110,19 @@ struct VersionMatrix {
     // it: selection filters `versions[]` directly. Kept exposed rather than dropped.
     std::map<std::string, Version> latest_release;
     std::vector<VersionEntry> versions;
+    std::vector<VersionEntry> device_versions;
+};
+
+struct DeviceDescriptor {
+    std::string product_id;
+    std::string profile;
+    std::optional<Version> api_version;
+    std::optional<Version> build_version;
+    bool modern = false;
+    bool framelab_supported = false;
+    bool framelab_ready = false;
+    std::optional<bool> digital_io_supported;
+    bool digital_io_ready = false;
 };
 
 // ---------------------------------------------------------------------------------------

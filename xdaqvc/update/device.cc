@@ -162,18 +162,14 @@ Result<Version> get_device_version(
     const DeviceEndpoint &device, std::chrono::milliseconds timeout
 )
 {
-    // Delegates rather than issuing its own GET, keeping one call site for /api_version.
-    const Server server{device.host, device.server_port};
-    auto version = server.api_version(timeout);
-    if (!version) {
-        return std::unexpected(Error{
-            ErrorCode::NetworkUnreachable,
-            std::format(
-                "Cannot read device version from {}/api_version",
-                base_url(device, device.server_port)
-            )
-        });
-    }
+    const auto url = base_url(device,device.server_port) + "/build_version";
+    auto response = cpr::Get(cpr::Url{url},cpr::Timeout{timeout},cpr::Redirect{false});
+    if (auto error = transport_error(response,url)) return std::unexpected(*error);
+    auto json = nlohmann::json::parse(response.text,nullptr,false);
+    if (!json.is_object() || !json.contains("version") || !json["version"].is_string())
+        return std::unexpected(Error{ErrorCode::MalformedResponse,"Missing application build version"});
+    auto version = Version::from_string(json["version"].get<std::string>());
+    if (!version) return std::unexpected(Error{ErrorCode::VersionNotFound,"Application build is unknown; explicit legacy migration is required"});
     return *version;
 }
 
@@ -191,18 +187,20 @@ Result<Handshake> perform_handshake(const DeviceEndpoint &device, std::chrono::m
 
 Result<PreparedTransfer> prepare_transfer(
     const DeviceEndpoint &device, const Handshake &handshake, const DownloadedArtifact &artifact,
-    std::chrono::milliseconds timeout
+    std::chrono::milliseconds timeout, std::string_view environment
 )
 {
     const auto url = std::format("{}/prepare-transfer", base_url(device, device.update_port));
 
     // The device validates these against what actually arrives, so they must describe the
     // artifact as verified rather than as advertised.
-    const nlohmann::json body{
+    nlohmann::json body{
         {"filename", artifact.artifact.name},
         {"file_hash", artifact.artifact.sha256},
         {"file_size", artifact.artifact.size},
     };
+    if (environment == "dev") body["environment"] = "dev";
+    else if (environment != "release") return std::unexpected(Error{ErrorCode::MalformedResponse,"Invalid transfer environment"});
 
     auto headers = auth_header(handshake);
     headers.emplace("Content-Type", "application/json");
