@@ -48,3 +48,19 @@ unchanged production camera/port fixtures. Hardware/update integration tests are
 excluded. No desktop application, updater transfer, device or cloud operation is
 executed. The separate FrameLab Windows/macOS setup distribution is not bundled
 or modified by this work.
+
+## Review corrections
+
+Application verification now uses a pure health predicate: exact product/profile/
+build and compatible installed API are mandatory. AIO always requires healthy
+advertised FrameLab plus its runtime sandbox contract. NVR requires that contract
+when its descriptor advertises FrameLab; otherwise identity and updater receipt
+verification can succeed without requesting that endpoint. Missing or unhealthy
+required capability data never becomes success. API incompatibility is a
+VersionNotFound selection failure, not malformed cloud data.
+
+Local production tags v0.1.0 through v0.1.3 all expose /version and /api_version
+with the API version, and /build_version with the separate build marker. Legacy
+device_type labels are ignored without assigning a product; modern conflicting
+product labels still fail. Operation/verification failures do not prove rollback,
+and fallback messages make no restoration claim.

@@ -61,7 +61,7 @@ enum class ErrorCode {
     // device transfer
     HandshakeRejected,  // update service refused, or token expired
     TransferRejected,   // prepare-transfer / transfer refused
-    DeviceUpdateFailed, // device accepted the package but failed to apply it
+    DeviceUpdateFailed, // operation/health failure or unknown final state; does not prove rollback
 };
 
 struct Error {

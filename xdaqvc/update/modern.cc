@@ -18,6 +18,9 @@ std::string text(const Json &node, std::string_view name) {
 bool flag(const Json &node,std::string_view name) {auto it=node.find(name);return it!=node.end() && it->is_boolean() && it->get<bool>();}
 int number(const Json &node,std::string_view name) {auto it=node.find(name);return it!=node.end() && it->is_number_integer()?it->get<int>():0;}
 Error malformed(std::string message) {return {ErrorCode::MalformedResponse,std::move(message)};}
+bool compatible_api(const DeviceDescriptor &device) {
+    return device.api_version && device.api_version->major()==0 && device.api_version->minor()==1;
+}
 std::string base(const DeviceEndpoint &device,int port) {return std::format("http://{}:{}",device.host,port);}
 Result<Json> get(const std::string &url,const std::string &token={}) {
     cpr::Header headers;
@@ -34,7 +37,8 @@ const Artifact *role(const VersionEntry &entry,std::string_view wanted) {
     return it==entry.files.end()?nullptr:&*it;
 }
 bool framelab_ready(const Json &value) {
-    if(number(value,"protocol")!=1 || !value.contains("sandbox") || !value["sandbox"].is_object()) return false;
+    if(!value.contains("protocol") || !value["protocol"].is_number_integer() || value["protocol"]!=1
+       || !value.contains("sandbox") || !value["sandbox"].is_object()) return false;
     const auto &sandbox=value["sandbox"];
     return flag(sandbox,"bwrap") && flag(sandbox,"systemd_scope") && text(sandbox,"memory_enforcement")=="cgroup"
            && sandbox.contains("problems") && sandbox["problems"].is_array() && sandbox["problems"].empty();
@@ -53,7 +57,7 @@ Result<void> wait_operation(const DeviceEndpoint &endpoint,const VersionEntry &e
                 if(!parsed) return std::unexpected(parsed.error());
                 if(!receipt_matches(*parsed,entry,artifact)) return std::unexpected(malformed("Updater receipt identifies another package/device"));
                 if(parsed->status=="failed" || parsed->status=="interrupted")
-                    return std::unexpected(Error{ErrorCode::DeviceUpdateFailed,parsed->error.empty()?"Device restored its previous release":parsed->error});
+                    return std::unexpected(Error{ErrorCode::DeviceUpdateFailed,parsed->error.empty()?"Updater reported a failed or interrupted operation":parsed->error});
                 if(parsed->status=="succeeded") {
                     last_error="Receipt succeeded, but updater recovery or readiness is not complete";
                     auto caps=get(base(endpoint,endpoint.update_port)+"/capabilities");
@@ -62,11 +66,15 @@ Result<void> wait_operation(const DeviceEndpoint &endpoint,const VersionEntry &e
                     if(caps && updater_ready(caps->dump())) {
                         if(migration) return {};
                         auto identity=discover_device(endpoint);
-                        auto framelab=get(base(endpoint,endpoint.server_port)+"/framelab/v1/capabilities");
-                        if(identity && identity->product_id==entry.product_id && identity->profile==entry.profile
-                           && identity->build_version && *identity->build_version==entry.version
-                           && framelab && framelab_ready(*framelab)) return {};
-                        last_error="Receipt succeeded, but expected application build/device/FrameLab health is not ready";
+                        if(identity) {
+                            std::string runtime;
+                            if(application_requires_framelab(*identity,entry)) {
+                                auto framelab=get(base(endpoint,endpoint.server_port)+"/framelab/v1/capabilities");
+                                if(framelab) runtime=framelab->dump();
+                            }
+                            if(application_health_ready(*identity,entry,runtime)) return {};
+                        }
+                        last_error="Receipt succeeded, but expected application identity or required capability health is not ready";
                     }
                 }
             }
@@ -87,7 +95,8 @@ Result<void> wait_operation(const DeviceEndpoint &endpoint,const VersionEntry &e
         auto response=cpr::Get(cpr::Url{url},cpr::Timeout{std::chrono::seconds{2}},cpr::Redirect{false});
         if(response.status_code==200) logs({"","bootstrap","ERROR",response.text.substr(0,64000)});
     }
-    return std::unexpected(Error{ErrorCode::DeviceUpdateFailed,last_error+"; the ten-minute deadline expired. Inspect the migration diagnostic log before retrying."});
+    return std::unexpected(Error{ErrorCode::DeviceUpdateFailed,last_error+"; the ten-minute deadline expired. "
+        +(migration?"Inspect the migration diagnostic log before retrying.":"Check the installed application and updater diagnostics before retrying.")});
 }
 }
 
@@ -110,6 +119,20 @@ bool updater_ready(std::string_view input) {
            && std::find(value["compatibility"].begin(),value["compatibility"].end(),"device_package_v1")!=value["compatibility"].end();
 }
 
+bool application_requires_framelab(const DeviceDescriptor &device,const VersionEntry &target) {
+    return target.product_id=="aio" || device.framelab_supported;
+}
+
+bool application_health_ready(const DeviceDescriptor &device,const VersionEntry &target,std::string_view capabilities) {
+    if(!compatible_api(device) || !device.modern || (target.product_id!="aio" && target.product_id!="nvr")
+       || device.product_id!=target.product_id || device.profile!=target.profile
+       || !device.build_version || *device.build_version!=target.version) return false;
+    if(!application_requires_framelab(device,target)) return true;
+    if(!device.framelab_supported || !device.framelab_ready) return false;
+    const auto runtime=Json::parse(capabilities,nullptr,false);
+    return runtime.is_object() && framelab_ready(runtime);
+}
+
 Result<DeviceDescriptor> parse_device_descriptor(std::string_view descriptor,std::string_view build) {
     auto value=Json::parse(descriptor,nullptr,false), compiled=Json::parse(build,nullptr,false);
     if(!value.is_object() || !compiled.is_object()) return std::unexpected(malformed("Device identity/build response is malformed"));
@@ -120,7 +143,7 @@ Result<DeviceDescriptor> parse_device_descriptor(std::string_view descriptor,std
     result.modern=!result.product_id.empty() || value.contains("device_descriptor_version");
     if(result.modern && ((result.product_id!="aio" && result.product_id!="nvr") || number(value,"device_descriptor_version")!=1))
         return std::unexpected(malformed("Unknown device identity/schema; update target cannot be guessed"));
-    if(value.contains("device_type") && text(value,"device_type")!=result.product_id)
+    if(result.modern && value.contains("device_type") && text(value,"device_type")!=result.product_id)
         return std::unexpected(malformed("Device type/product identity conflicts"));
     if(value.contains("capabilities") && value["capabilities"].is_object()) {
         const auto &caps=value["capabilities"];
@@ -193,7 +216,7 @@ std::optional<std::string> migration_failure_log(std::string_view log,std::strin
     while(std::getline(lines,line)) {
         auto value=Json::parse(line,nullptr,false);
         if(value.is_object() && text(value,"id")==archive_sha256 && text(value,"status")=="failed")
-            failure=text(value,"error").empty()?"Updater migration restored the known legacy updater":text(value,"error");
+            failure=text(value,"error").empty()?"Updater migration failed; inspect recovery diagnostics":text(value,"error");
     }
     return failure;
 }
@@ -201,8 +224,8 @@ std::optional<std::string> migration_failure_log(std::string_view log,std::strin
 Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const DeviceDescriptor &device,
                                            std::string_view updater_version,std::string_view environment,bool allow_legacy_aio_confirmation) {
     if(environment!="release" && environment!="dev") return std::unexpected(malformed("Invalid update environment"));
-    if(!device.api_version || device.api_version->major()!=0 || device.api_version->minor()!=1)
-        return std::unexpected(malformed("Device API compatibility is not established; application build version cannot substitute for API version"));
+    if(!compatible_api(device))
+        return std::unexpected(Error{ErrorCode::VersionNotFound,"No compatible update can be selected for this device API; application build version cannot substitute for API compatibility"});
     const bool legacy=!device.modern;
     if(legacy && !allow_legacy_aio_confirmation) return std::unexpected(malformed("Unidentified legacy device requires explicit approved AIO migration confirmation"));
     const std::string product=legacy?"aio":device.product_id;
@@ -268,7 +291,7 @@ Result<void> install_device_release(const std::string &cloud,const DeviceEndpoin
         logs.stop();
         if(!transfer && !migration_upload_pending(transfer.error()))
             return std::unexpected(transfer.error());
-        notify(wanted=="application"?"Verifying application build and FrameLab":"Waiting for durable updater migration result");
+        notify(wanted=="application"?"Verifying application identity and required capabilities":"Waiting for durable updater migration result");
         auto verified=wait_operation(endpoint,plan.target,*artifact,wanted=="updater-migration",on_log);
         if(!verified) return verified;
     }

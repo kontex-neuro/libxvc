@@ -66,7 +66,8 @@ TEST_CASE("DEV selection is explicit and API compatibility is distinct from appl
     REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.1.0"));
     REQUIRE(plan_device_update(catalog,*identity,"1.1.0","dev"));
     identity->api_version=Version(2,0,0);
-    REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.1.0","dev"));
+    auto incompatible=plan_device_update(catalog,*identity,"1.1.0","dev");
+    REQUIRE_FALSE(incompatible);REQUIRE(incompatible.error().code==ErrorCode::VersionNotFound);
 }
 
 TEST_CASE("Modern downgrades and conflicting cohort source identities are rejected", "[update][modern]") {
@@ -91,6 +92,8 @@ TEST_CASE("Legacy HTTP500 or reset is pending and a success receipt must match a
     REQUIRE_FALSE(parse_operation_receipt(R"({"status":"succeeded"})"));
     auto log=Json{{"id",entry.files[1].sha256},{"status","failed"},{"error","fingerprint mismatch"}}.dump()+"\n";
     REQUIRE(migration_failure_log(log,entry.files[1].sha256)=="fingerprint mismatch");
+    const auto no_error=Json{{"id",entry.files[1].sha256},{"status","failed"}}.dump();
+    REQUIRE(migration_failure_log(no_error,entry.files[1].sha256)=="Updater migration failed; inspect recovery diagnostics");
     REQUIRE_FALSE(migration_failure_log(log,entry.files[0].sha256));
 }
 
@@ -139,4 +142,55 @@ TEST_CASE("A migration receipt cannot satisfy an application even with identical
     value["kind"]="install";value["status"]="unrecognized";REQUIRE_FALSE(parse_operation_receipt(value.dump()));
     value["status"]="succeeded";value["role"]="unrecognized";REQUIRE_FALSE(parse_operation_receipt(value.dump()));
     value.erase("role");REQUIRE_FALSE(parse_operation_receipt(value.dump()));
+}
+
+TEST_CASE("Application health follows required capabilities without skipping AIO or advertised NVR health", "[update][modern]") {
+    const Json healthy={{"protocol",1},{"sandbox",{{"bwrap",true},{"systemd_scope",true},
+        {"memory_enforcement","cgroup"},{"problems",Json::array()}}}};
+    auto catalog=matrix({device_entry("aio"),device_entry("nvr")});
+    auto aio=parse_device_descriptor(descriptor("aio").dump(),R"({"version":"1.4.2"})");REQUIRE(aio);
+    auto nvr=parse_device_descriptor(descriptor("nvr").dump(),R"({"version":"1.4.2"})");REQUIRE(nvr);
+    const auto &aio_target=catalog.device_versions[0];const auto &nvr_target=catalog.device_versions[1];
+    REQUIRE(application_requires_framelab(*aio,aio_target));
+    REQUIRE_FALSE(application_health_ready(*aio,aio_target));
+    REQUIRE(application_health_ready(*aio,aio_target,healthy.dump()));
+    const auto healthy_aio=*aio;
+    auto bad_api=healthy_aio;bad_api.api_version.reset();
+    REQUIRE_FALSE(application_health_ready(bad_api,aio_target,healthy.dump()));
+    bad_api=healthy_aio;bad_api.api_version=Version(0,2,0);
+    REQUIRE_FALSE(application_health_ready(bad_api,aio_target,healthy.dump()));
+    auto broken=healthy;broken["sandbox"]["problems"]=Json::array({"isolation unavailable"});
+    REQUIRE_FALSE(application_health_ready(*aio,aio_target,broken.dump()));
+    for(const auto protocol:{Json(2),Json(1.0),Json(4294967297ULL)}) {
+        auto malformed_protocol=healthy;malformed_protocol["protocol"]=protocol;
+        REQUIRE_FALSE(application_health_ready(*aio,aio_target,malformed_protocol.dump()));
+    }
+    REQUIRE_FALSE(application_health_ready(*aio,aio_target,"not JSON"));
+    aio->framelab_supported=false;REQUIRE(application_requires_framelab(*aio,aio_target));
+    REQUIRE_FALSE(application_health_ready(*aio,aio_target,healthy.dump()));
+    REQUIRE(application_requires_framelab(*nvr,nvr_target));
+    REQUIRE_FALSE(application_health_ready(*nvr,nvr_target));
+    REQUIRE_FALSE(application_health_ready(*nvr,nvr_target,broken.dump()));
+    REQUIRE(application_health_ready(*nvr,nvr_target,healthy.dump()));
+    nvr->framelab_ready=false;REQUIRE_FALSE(application_health_ready(*nvr,nvr_target,healthy.dump()));
+    nvr->framelab_supported=false;REQUIRE_FALSE(application_requires_framelab(*nvr,nvr_target));
+    REQUIRE(application_health_ready(*nvr,nvr_target));
+    bad_api=*nvr;bad_api.api_version.reset();REQUIRE_FALSE(application_health_ready(bad_api,nvr_target));
+    bad_api=*nvr;bad_api.api_version=Version(0,2,0);REQUIRE_FALSE(application_health_ready(bad_api,nvr_target));
+    nvr->build_version=Version(1,4,1);REQUIRE_FALSE(application_health_ready(*nvr,nvr_target));
+    nvr->build_version=nvr_target.version;nvr->profile="wrong";
+    REQUIRE_FALSE(application_health_ready(*nvr,nvr_target));
+    nvr->profile=nvr_target.profile;nvr->product_id="aio";
+    REQUIRE_FALSE(application_health_ready(*nvr,nvr_target));
+}
+
+TEST_CASE("Legacy labels do not become modern product identity and modern conflicts still refuse", "[update][modern]") {
+    auto legacy=parse_device_descriptor(R"({"version":"0.1.3","features":["usb_topology_v1"],"device_type":"Raspberry Pi"})",
+        R"({"message":"Build version","version":"0.1.3"})");
+    REQUIRE(legacy);REQUIRE_FALSE(legacy->modern);REQUIRE(legacy->product_id.empty());REQUIRE(legacy->profile.empty());
+    REQUIRE(legacy->api_version==Version(0,1,3));REQUIRE(legacy->build_version==Version(0,1,3));
+    auto catalog=matrix({device_entry("aio"),device_entry("nvr")});
+    REQUIRE_FALSE(plan_device_update(catalog,*legacy,"1.1.0"));
+    auto modern=descriptor("aio");modern["device_type"]="nvr";
+    REQUIRE_FALSE(parse_device_descriptor(modern.dump(),R"({"version":"1.4.2"})"));
 }

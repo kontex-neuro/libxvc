@@ -32,6 +32,9 @@ Result<std::string> discover_updater_version(const DeviceEndpoint &device);
 Result<OperationReceipt> parse_operation_receipt(std::string_view json);
 bool receipt_matches(const OperationReceipt &receipt, const VersionEntry &entry, const Artifact &artifact);
 bool updater_ready(std::string_view capabilities);
+bool application_requires_framelab(const DeviceDescriptor &device, const VersionEntry &target);
+bool application_health_ready(const DeviceDescriptor &device, const VersionEntry &target,
+                              std::string_view framelab_capabilities = {});
 bool migration_upload_pending(const Error &error);
 std::optional<std::string> migration_failure_log(std::string_view log, std::string_view archive_sha256);
 bool secure_cloud_url(std::string_view url);
