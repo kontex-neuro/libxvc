@@ -102,6 +102,9 @@ struct VersionEntry {
     std::string product_id;
     std::string profile;
     std::string source_commit;
+    // Set from a complete, product-specific catalog bundle. Anonymous factory
+    // devices cannot supply a profile themselves until their updater migrates.
+    bool nvr_factory_migration = false;
 };
 
 struct VersionMatrix {

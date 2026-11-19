@@ -59,6 +59,98 @@ TEST_CASE("Unknown legacy builds require explicit approved AIO migration and nev
     REQUIRE_FALSE(plan_device_update(catalog,*old,"","release",true));
 }
 
+TEST_CASE("Factory product choice selects only a matching hardware-bound migration", "[update][modern]") {
+    const auto device=parse_device_descriptor(R"({"version":"0.1.3"})",R"({"version":"0.1.3"})").value();
+    auto aio=device_entry("aio","0.1.10");
+    auto nvr=device_entry("nvr","0.1.11");
+    nvr["qualification"]={{"state","accepted"}};
+    const Json target={{"architecture","aarch64"},{"model_contains","Raspberry Pi Compute Module 5"},
+        {"os_id","debian"},{"os_version","12"},{"python_abi","cp311"},{"kernel","example-kernel"}};
+    for(auto& file:nvr["files"]) file["target"]=target;
+    nvr["files"][1]["components"]={{"updater","1.2.1"}};
+    auto plan_nvr=[&](const Json& entry) {
+        return plan_device_update(matrix({aio,entry}),device,"","release",LegacyDeviceProduct::Nvr);
+    };
+    const auto both=matrix({aio,nvr});
+    auto plan=plan_device_update(both,device,"","release",LegacyDeviceProduct::Aio);
+    REQUIRE(plan);
+    REQUIRE(plan->target.product_id=="aio");
+    REQUIRE(plan->target.version==Version(0,1,10));
+    REQUIRE(plan->migration_required);
+    plan=plan_nvr(nvr);
+    REQUIRE(plan);
+    REQUIRE(plan->target.product_id=="nvr");
+    REQUIRE(plan->target.version==Version(0,1,11));
+    REQUIRE(plan->migration_required);
+    REQUIRE_FALSE(plan->device.modern);
+    REQUIRE_FALSE(plan->legacy_aio_confirmation);
+    REQUIRE_FALSE(plan_device_update(both,device,"","release",LegacyDeviceProduct::Unspecified));
+    REQUIRE_FALSE(plan_device_update(matrix({aio}),device,"","release",LegacyDeviceProduct::Nvr));
+
+    auto invalid=nvr;
+    invalid["files"].erase(1);
+    REQUIRE_FALSE(plan_nvr(invalid));
+    invalid=nvr; invalid["files"][1]["target"]["model_contains"]="Jetson Orin NX";
+    REQUIRE_FALSE(plan_nvr(invalid));
+    invalid=nvr;
+    for(auto& file:invalid["files"]) file["target"]["model_contains"]="Jetson Orin NX";
+    REQUIRE_FALSE(plan_nvr(invalid));
+    invalid=nvr; invalid["files"][1]["target"].erase("kernel");
+    REQUIRE_FALSE(plan_nvr(invalid));
+    invalid=nvr; invalid["qualification"]["state"]="candidate";
+    REQUIRE_FALSE(plan_nvr(invalid));
+    invalid=nvr; invalid["files"][1]["components"]["updater"]="1.1.0";
+    REQUIRE_FALSE(plan_nvr(invalid));
+    auto second=nvr;
+    auto set_profile=[](Json& value,std::string profile) {
+        value["profile"]=profile;
+        value["download_base"]="/dist/v"+value.at("version").get<std::string>()+"/nvr/"+profile+"/linux-arm64/";
+    };
+    set_profile(second,"nvr-unqualified");
+    REQUIRE_FALSE(plan_nvr(second));
+    auto unqualified=descriptor("nvr");
+    unqualified["release_profile"]="nvr-unqualified";
+    auto identified=parse_device_descriptor(unqualified.dump(),R"({"version":"0.1.3"})").value();
+    REQUIRE_FALSE(plan_device_update(matrix({second}),identified,"","release",LegacyDeviceProduct::Nvr));
+    set_profile(second,"nvr-cm5-alternative");
+    REQUIRE_FALSE(plan_device_update(matrix({nvr,second}),device,"","release",LegacyDeviceProduct::Nvr));
+}
+
+TEST_CASE("A modern updater identifies an interrupted factory migration before Desktop asks for a product", "[update][modern]") {
+    const auto legacy=parse_device_descriptor(R"({"version":"0.1.3"})",R"({"version":"0.1.3"})").value();
+    const std::string profile="aio-jetson-orin-nx-l4t36.4.3-aarch64-cp310";
+    Json caps={{"updater_version","1.2.1"},{"device",{{"product_id","aio"},{"release_profile",profile}}}};
+    auto identity=parse_update_identity(legacy,caps.dump());
+    REQUIRE(identity);
+    REQUIRE(identity->device.modern);
+    REQUIRE(identity->device.build_version==Version(0,1,3));
+    REQUIRE(identity->updater_version=="1.2.1");
+    auto plan=plan_device_update(matrix({device_entry("aio"),device_entry("nvr")}),identity->device,
+                                 identity->updater_version,"release",LegacyDeviceProduct::Nvr);
+    REQUIRE(plan);
+    REQUIRE(plan->target.product_id=="aio");
+    REQUIRE_FALSE(plan->migration_required);
+    const auto modern_nvr=parse_device_descriptor(descriptor("nvr").dump(),R"({"version":"0.1.9"})").value();
+    REQUIRE_FALSE(parse_update_identity(modern_nvr,caps.dump()));
+    auto nvr_caps=caps;
+    nvr_caps["device"]={{"product_id","nvr"},{"release_profile",modern_nvr.profile}};
+    identity=parse_update_identity(legacy,nvr_caps.dump());
+    REQUIRE(identity);
+    plan=plan_device_update(matrix({device_entry("aio"),device_entry("nvr")}),identity->device,
+                            identity->updater_version,"release",LegacyDeviceProduct::Aio);
+    REQUIRE(plan);
+    REQUIRE(plan->target.product_id=="nvr");
+    REQUIRE_FALSE(plan->migration_required);
+    auto invalid=caps; invalid["device"]["release_profile"]="nvr-unqualified";
+    REQUIRE_FALSE(parse_update_identity(legacy,invalid.dump()));
+    invalid=caps; invalid["device"]["release_profile"]=nullptr;
+    REQUIRE_FALSE(parse_update_identity(legacy,invalid.dump()));
+    invalid=caps; invalid.erase("device");
+    REQUIRE_FALSE(parse_update_identity(legacy,invalid.dump()));
+    invalid=caps; invalid["updater_version"]="unknown";
+    REQUIRE_FALSE(parse_update_identity(legacy,invalid.dump()));
+}
+
 TEST_CASE("DEV selection is explicit and API compatibility is distinct from application version", "[update][modern]") {
     auto dev=device_entry(); dev["environment"]="dev"; dev["download_base"]="/dev/v1.4.2/aio/aio-jetson-orin-nx-l4t36.4.3-aarch64-cp310/linux-arm64/";
     auto catalog=matrix({dev});

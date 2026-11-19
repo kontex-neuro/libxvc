@@ -5,6 +5,13 @@
 
 namespace xvc::update {
 
+enum class LegacyDeviceProduct { Unspecified, Aio, Nvr };
+
+struct DeviceUpdateIdentity {
+    DeviceDescriptor device;
+    std::string updater_version;
+};
+
 struct DeviceUpdatePlan {
     DeviceDescriptor device;
     VersionEntry target;
@@ -29,6 +36,10 @@ struct OperationReceipt {
 
 Result<DeviceDescriptor> parse_device_descriptor(std::string_view descriptor, std::string_view build);
 Result<DeviceDescriptor> discover_device(const DeviceEndpoint &device);
+// A factory updater returns 404. A modern updater can identify the hardware
+// even if migration was interrupted before the new videoserver was installed.
+Result<DeviceUpdateIdentity> discover_update_identity(const DeviceEndpoint &endpoint, DeviceDescriptor device);
+Result<DeviceUpdateIdentity> parse_update_identity(DeviceDescriptor device, std::string_view capabilities);
 Result<std::string> discover_updater_version(const DeviceEndpoint &device);
 Result<OperationReceipt> parse_operation_receipt(std::string_view json);
 bool receipt_matches(const OperationReceipt &receipt, const VersionEntry &entry, const Artifact &artifact);
@@ -49,6 +60,9 @@ Result<void> transfer_migration(const DeviceEndpoint &endpoint, const Handshake 
                                std::chrono::milliseconds drain_timeout = std::chrono::seconds{5});
 std::optional<std::string> migration_failure_log(std::string_view log, std::string_view archive_sha256);
 bool secure_cloud_url(std::string_view url);
+Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix, const DeviceDescriptor &device,
+                                            std::string_view updater_version, std::string_view environment,
+                                            LegacyDeviceProduct confirmed_product);
 Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix, const DeviceDescriptor &device,
                                           std::string_view updater_version, std::string_view environment = "release",
                                           bool allow_legacy_aio_confirmation = false);

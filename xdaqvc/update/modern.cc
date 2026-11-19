@@ -171,6 +171,39 @@ Result<DeviceDescriptor> discover_device(const DeviceEndpoint &endpoint) {
     return parse_device_descriptor(descriptor->dump(),build->dump());
 }
 
+Result<DeviceUpdateIdentity> parse_update_identity(DeviceDescriptor device, std::string_view capabilities) {
+    const auto value = Json::parse(capabilities, nullptr, false);
+    if (!value.is_object()) return std::unexpected(malformed("Invalid updater capabilities"));
+    auto version = text(value, "updater_version");
+    if (!Version::from_string(version))
+        return std::unexpected(malformed("Updater capabilities lack a valid software version"));
+    const auto hardware = value.find("device");
+    if (hardware == value.end() || !hardware->is_object())
+        return std::unexpected(malformed("Updater capabilities lack a device identity"));
+    auto product = text(*hardware, "product_id");
+    auto profile = text(*hardware, "release_profile");
+    static const std::regex profile_name("(aio|nvr)-[a-z0-9]+([.-][a-z0-9]+)*");
+    if ((product != "aio" && product != "nvr") || !profile.starts_with(product + "-")
+        || !std::regex_match(profile, profile_name) || profile == product + "-unqualified")
+        return std::unexpected(malformed("Updater returned an unknown device product or release profile"));
+    if (device.modern && (device.product_id != product || (!device.profile.empty() && device.profile != profile)))
+        return std::unexpected(malformed("Videoserver and updater disagree about the device identity"));
+    device.product_id = std::move(product);
+    device.profile = std::move(profile);
+    device.modern = true;
+    return DeviceUpdateIdentity{std::move(device), std::move(version)};
+}
+
+Result<DeviceUpdateIdentity> discover_update_identity(const DeviceEndpoint &endpoint, DeviceDescriptor device) {
+    const auto capabilities = get(base(endpoint, endpoint.update_port) + "/capabilities");
+    if (!capabilities) {
+        if (capabilities.error().code == ErrorCode::HttpError && capabilities.error().http_status == 404)
+            return DeviceUpdateIdentity{std::move(device), {}};
+        return std::unexpected(capabilities.error());
+    }
+    return parse_update_identity(std::move(device), capabilities->dump());
+}
+
 Result<std::string> discover_updater_version(const DeviceEndpoint &endpoint) {
     auto capabilities=get(base(endpoint,endpoint.update_port)+"/capabilities");
     if(!capabilities) {
@@ -273,6 +306,13 @@ std::optional<std::string> migration_failure_log(std::string_view log,std::strin
 
 Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const DeviceDescriptor &device,
                                            std::string_view updater_version,std::string_view environment,bool allow_legacy_aio_confirmation) {
+    return plan_device_update(matrix, device, updater_version, environment,
+                              allow_legacy_aio_confirmation ? LegacyDeviceProduct::Aio : LegacyDeviceProduct::Unspecified);
+}
+
+Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const DeviceDescriptor &device,
+                                           std::string_view updater_version,std::string_view environment,
+                                           LegacyDeviceProduct confirmed_product) {
     if(environment!="release" && environment!="dev") return std::unexpected(malformed("Invalid update environment"));
     if(!compatible_api(device))
         return std::unexpected(Error{ErrorCode::VersionNotFound,"No compatible update can be selected for this device API; application build version cannot substitute for API compatibility"});
@@ -280,21 +320,45 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const De
     if(advertised_updater && *advertised_updater<Version(1,2,0))
         return std::unexpected(Error{ErrorCode::VersionNotFound,"This modern updater lacks offline PC approval support; reviewed maintenance is required before updating"});
     const bool legacy=!device.modern;
-    if(legacy && !allow_legacy_aio_confirmation) return std::unexpected(malformed("Unidentified legacy device requires explicit approved AIO migration confirmation"));
-    const std::string product=legacy?"aio":device.product_id;
-    const std::string profile=legacy?"aio-jetson-orin-nx-l4t36.4.3-aarch64-cp310":device.profile;
-    if(profile.empty()) return std::unexpected(Error{ErrorCode::PlatformNotFound,"Device runtime profile is not established; no platform fallback is allowed"});
+    std::string product=device.product_id;
+    std::string profile=device.profile;
+    if (legacy) {
+        switch (confirmed_product) {
+        case LegacyDeviceProduct::Aio:
+            product="aio";
+            profile="aio-jetson-orin-nx-l4t36.4.3-aarch64-cp310";
+            break;
+        case LegacyDeviceProduct::Nvr:
+            product="nvr";
+            profile.clear();
+            break;
+        default:
+            return std::unexpected(malformed("Choose AIO or NVR to check a factory device for updates"));
+        }
+    } else if (profile.empty() || profile==product+"-unqualified") {
+        return std::unexpected(Error{ErrorCode::PlatformNotFound,"Device runtime profile is not established; no platform fallback is allowed"});
+    }
+    const bool factory_nvr=legacy && confirmed_product==LegacyDeviceProduct::Nvr;
     const VersionEntry *best=nullptr;
     for(const auto &entry:matrix.device_versions) {
         const auto application=role(entry,"application");
         const auto offline_minimum=application?Version::from_string(application->minimum_updater):std::nullopt;
         if(!offline_minimum || *offline_minimum<Version(1,2,0)) continue;
-        if(entry.product_id!=product || entry.profile!=profile || entry.platform!="linux-arm64"
-           || entry.environment!=environment || entry.status!="stable" || !role(entry,"application")
+        if(entry.product_id!=product || entry.platform!="linux-arm64"
+           || entry.environment!=environment || entry.status!="stable"
            || (legacy && !role(entry,"updater-migration"))) continue;
+        if (factory_nvr) {
+            if (!entry.nvr_factory_migration) continue;
+            if (best && best->profile != entry.profile)
+                return std::unexpected(Error{ErrorCode::PlatformNotFound,"Multiple NVR profiles are available. The factory updater cannot identify which one fits this device."});
+        } else if (entry.profile!=profile) continue;
         if(!best || entry.version>best->version) best=&entry;
     }
-    if(!best) return std::unexpected(Error{ErrorCode::VersionNotFound,"No approved package for this device/profile/channel; legacy ARM64 feed will not be substituted"});
+    if(!best) {
+        if (legacy) return std::unexpected(Error{ErrorCode::VersionNotFound, std::format(
+            "No compatible {} factory migration package is available on the {} channel.", factory_nvr ? "NVR" : "AIO", environment)});
+        return std::unexpected(Error{ErrorCode::VersionNotFound,"No approved package for this device/profile/channel; legacy ARM64 feed will not be substituted"});
+    }
     if(device.build_version && *device.build_version>best->version)
         return std::unexpected(Error{ErrorCode::DowngradeRejected,"Device application is newer than this catalog; downgrade is blocked"});
     auto updater=Version::from_string(updater_version), minimum=Version::from_string(role(*best,"application")->minimum_updater);
@@ -302,7 +366,7 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const De
     bool migration=!updater || *updater<*minimum;
     if(migration && !role(*best,"updater-migration"))
         return std::unexpected(Error{ErrorCode::VersionNotFound,"Matching updater migration is required before this application package"});
-    DeviceUpdatePlan plan{device,*best,!device.build_version || *device.build_version<best->version || migration,migration,legacy && migration,std::string(environment)};
+    DeviceUpdatePlan plan{device,*best,!device.build_version || *device.build_version<best->version || migration,migration,legacy && !factory_nvr && migration,std::string(environment)};
     return plan;
 }
 
@@ -325,6 +389,8 @@ Result<void> install_device_release(const std::string &cloud,const DeviceEndpoin
             migration=false;
         } else if(caps.error().code!=ErrorCode::HttpError || caps.error().http_status!=404) {
             return std::unexpected(caps.error());
+        } else if(plan.target.product_id=="nvr" && !plan.target.nvr_factory_migration) {
+            return std::unexpected(Error{ErrorCode::VersionNotFound,"This NVR package does not support factory updater migration."});
         }
     }
     std::vector<std::string_view> roles;
@@ -350,7 +416,8 @@ Result<void> install_device_release(const std::string &cloud,const DeviceEndpoin
                 return std::unexpected(malformed("Updater device identity differs from the selected package"));
         }
         auto selected=plan.target; selected.files={*artifact};
-        notify(wanted=="application"?"Downloading application":"Downloading AIO updater migration");
+        if (wanted=="application") notify("Downloading application");
+        else notify(plan.target.product_id=="nvr" ? "Downloading NVR updater migration" : "Downloading AIO updater migration");
         auto downloaded=download_artifact(cloud,selected,progress);
         if(!downloaded) return std::unexpected(downloaded.error());
         struct Cleanup {std::filesystem::path path; ~Cleanup(){std::error_code ignored;std::filesystem::remove(path,ignored);}} cleanup{downloaded->path};
@@ -361,7 +428,7 @@ Result<void> install_device_release(const std::string &cloud,const DeviceEndpoin
         if(!prepared) return std::unexpected(prepared.error());
         Result<void> transfer;
         if(wanted=="updater-migration") {
-            notify("Verifying AIO and migrating updater");
+            notify(plan.target.product_id=="nvr" ? "Verifying NVR and migrating updater" : "Verifying AIO and migrating updater");
             transfer=transfer_migration(endpoint,*handshake,*prepared,downloaded->path,progress,on_log);
         } else {
             auto logs=stream_update_logs(endpoint,*handshake,*prepared,on_log?on_log:[](const LogEntry&){});

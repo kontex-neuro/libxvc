@@ -44,6 +44,34 @@ std::string optional_string(const nlohmann::json &node, std::string_view field)
     return it->get<std::string>();
 }
 
+bool supports_nvr_factory_migration(const nlohmann::json &entry)
+{
+    const auto qualification = entry.find("qualification");
+    if (qualification == entry.end() || !qualification->is_object()) return false;
+    const auto expected = entry.at("environment") == "release" ? "accepted" : "candidate";
+    if (optional_string(*qualification, "state") != expected || entry.at("profile") == "nvr-unqualified")
+        return false;
+
+    const auto &files = entry.at("files");
+    const auto app = std::ranges::find_if(files, [](const auto &f) { return f.at("role") == "application"; });
+    const auto migration = std::ranges::find_if(files, [](const auto &f) { return f.at("role") == "updater-migration"; });
+    if (app == files.end() || migration == files.end() || optional_string(*migration, "minimum_updater") != "0.0.1")
+        return false;
+    const auto target = app->find("target");
+    const auto migration_target = migration->find("target");
+    if (target == app->end() || !target->is_object() || migration_target == migration->end() || *target != *migration_target)
+        return false;
+    if (optional_string(*target, "architecture") != "aarch64"
+        || optional_string(*target, "model_contains") != "Raspberry Pi Compute Module 5") return false;
+    for (const auto *field : {"os_id", "os_version", "python_abi", "kernel"})
+        if (optional_string(*target, field).empty()) return false;
+    const auto components = migration->find("components");
+    if (components == migration->end() || !components->is_object()) return false;
+    const auto updater = Version::from_string(optional_string(*components, "updater"));
+    const auto minimum = Version::from_string(optional_string(*app, "minimum_updater"));
+    return updater && minimum && *updater >= *minimum;
+}
+
 std::expected<Artifact, Error> parse_artifact(const nlohmann::json &node, std::string_view context)
 {
     if (!node.is_object()) {
@@ -229,6 +257,7 @@ Result<VersionMatrix> parse_versions_json(std::string_view json_text)
             }
             if (std::find(roles.begin(),roles.end(),"application") == roles.end())
                 return std::unexpected(Error{ErrorCode::MalformedResponse, "Device application artifact missing"});
+            entry->nvr_factory_migration = product == "nvr" && supports_nvr_factory_migration(node);
             matrix.device_versions.push_back(*entry);
         }
     }
