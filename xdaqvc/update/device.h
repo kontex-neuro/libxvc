@@ -117,6 +117,11 @@ public:
     // already ended on its own.
     void stop() noexcept;
 
+    // Allow queued outcomes through before stopping. Returns true only for the
+    // server's end marker, never update success. A silent stream is aborted after
+    // timeout; joining may add curl's progress-poll/connect interval (at most 2s).
+    bool drain(std::chrono::milliseconds timeout) noexcept;
+
     // False once the server has sent __STREAM_END__ or the connection has closed.
     [[nodiscard]] bool running() const noexcept;
 

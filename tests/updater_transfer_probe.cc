@@ -30,11 +30,16 @@ int main(int argc,char **argv) {
         Handshake handshake{.token="wire-only-localfixture"};
         auto prepared=prepare_transfer(device,handshake,artifact,std::chrono::seconds{3},argv[5]);
         if(!prepared){std::cerr<<prepared.error().message;return 3;}
-        auto sent=transfer_file_and_apply_update(device,handshake,*prepared,file,{},std::chrono::seconds{3});
+        const bool stream_case=argc==8 && std::string_view(argv[7]).starts_with("sse-");
+        std::optional<int> setup_result;
+        auto sent=stream_case?transfer_migration(device,handshake,*prepared,file,{},[&](const LogEntry &entry) {
+            if(entry.source=="execute_script" && entry.level=="ERROR") setup_result=legacy_setup_return_code(entry.message);
+        },std::chrono::seconds{3},std::chrono::milliseconds{1200})
+            :transfer_file_and_apply_update(device,handshake,*prepared,file,{},std::chrono::seconds{3});
         if(argc==8) {
-            if(sent) return 8;
-            auto outcome=migration_upload_result(sent);
-            const bool expect_failure=std::string_view(argv[7])=="failed";
+            if(!stream_case && sent) return 8;
+            auto outcome=stream_case?sent:migration_upload_result(sent);
+            const bool expect_failure=std::string_view(argv[7])=="failed" || std::string_view(argv[7])=="sse-failed";
             if(expect_failure) {
                 if(outcome || outcome.error().code!=ErrorCode::DeviceUpdateFailed) return 9;
                 std::cout<<"terminal: "<<outcome.error().message<<'\n';
@@ -42,6 +47,7 @@ int main(int argc,char **argv) {
                 if(!outcome) {std::cerr<<outcome.error().message;return 10;}
                 std::cout<<"pending receipt; not success\n";
             }
+            if(stream_case) std::cout<<"setup="<<(setup_result?std::to_string(*setup_result):"unknown")<<'\n';
             return 0;
         }
         if(!sent){std::cerr<<sent.error().message;return 4;}

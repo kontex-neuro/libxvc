@@ -5,6 +5,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <format>
 #include <nlohmann/json.hpp>
 #include <system_error>
@@ -345,6 +347,9 @@ Result<void> transfer_file_and_apply_update(
 struct LogStream::Impl {
     std::atomic<bool> stop_requested{false};
     std::atomic<bool> running{false};
+    std::atomic<bool> stream_end_received{false};
+    std::mutex completion_mutex;
+    std::condition_variable completion;
     std::thread worker;
 
     ~Impl()
@@ -374,6 +379,17 @@ void LogStream::stop() noexcept
     if (!_impl) return;
     _impl->stop_requested.store(true);
     if (_impl->worker.joinable()) _impl->worker.join();
+}
+
+bool LogStream::drain(std::chrono::milliseconds timeout) noexcept
+{
+    if (!_impl) return false;
+    {
+        std::unique_lock lock(_impl->completion_mutex);
+        _impl->completion.wait_for(lock, timeout, [&] { return !_impl->running.load(); });
+    }
+    stop();
+    return _impl->stream_end_received.load();
 }
 
 bool LogStream::running() const noexcept
@@ -408,25 +424,36 @@ LogStream stream_update_logs(
                 auto entry = parse_log_event(event.data);
                 if (!entry) return true;  // a malformed line must not abort a live update
 
-                if (is_stream_end(*entry)) return false;  // server signalled completion
+                if (is_stream_end(*entry)) {
+                    impl->stream_end_received.store(true);
+                    return false;
+                }
 
                 if (on_log) on_log(*entry);
                 return !impl->stop_requested.load();
             }
         };
 
-        // No wall-clock timeout: the stream stays open for the duration of the update. It
-        // ends on the sentinel, on stop(), or when the server closes the connection.
+        // The stream can outlive an upload; drain() allows its queued outcome to
+        // arrive. Progress polling also interrupts silent connections on stop().
         cpr::Get(
             cpr::Url{url},
             cpr::Header{
                 {"Authorization", std::format("Bearer {}", token)},
                 {"Accept", "text/event-stream"}
             },
-            sse, cpr::Timeout{0}
+            sse, cpr::Timeout{0}, cpr::ConnectTimeout{std::chrono::seconds{2}},
+            cpr::ProgressCallback{[impl](cpr::cpr_pf_arg_t, cpr::cpr_pf_arg_t,
+                                       cpr::cpr_pf_arg_t, cpr::cpr_pf_arg_t, intptr_t) {
+                return !impl->stop_requested.load();
+            }}
         );
 
-        impl->running.store(false);
+        {
+            std::lock_guard lock(impl->completion_mutex);
+            impl->running.store(false);
+        }
+        impl->completion.notify_all();
     });
 
     return stream;

@@ -1,5 +1,6 @@
 #pragma once
 #include "types.h"
+#include "device.h"
 #include "plan.h"
 
 namespace xvc::update {
@@ -39,6 +40,13 @@ std::optional<int> legacy_setup_return_code(std::string_view message);
 bool migration_upload_pending(const Error &error);
 // Success here only permits durable-receipt polling; it never proves migration success.
 Result<void> migration_upload_result(const Result<void> &upload, std::optional<int> setup_return_code = std::nullopt);
+// Upload + drain + classify only. A successful return still requires a durable
+// matching migration receipt; no application package is transferred here.
+Result<void> transfer_migration(const DeviceEndpoint &endpoint, const Handshake &handshake,
+                               const PreparedTransfer &prepared, const std::filesystem::path &file,
+                               ProgressCallback progress = nullptr, LogCallback logs = nullptr,
+                               std::chrono::milliseconds upload_timeout = std::chrono::minutes{10},
+                               std::chrono::milliseconds drain_timeout = std::chrono::seconds{5});
 std::optional<std::string> migration_failure_log(std::string_view log, std::string_view archive_sha256);
 bool secure_cloud_url(std::string_view url);
 Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix, const DeviceDescriptor &device,

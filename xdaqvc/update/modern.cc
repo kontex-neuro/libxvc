@@ -241,6 +241,24 @@ Result<void> migration_upload_result(const Result<void> &upload,std::optional<in
     return std::unexpected(upload.error());
 }
 
+Result<void> transfer_migration(const DeviceEndpoint &endpoint,const Handshake &handshake,
+                                const PreparedTransfer &prepared,const std::filesystem::path &file,
+                                ProgressCallback progress,LogCallback on_log,
+                                std::chrono::milliseconds upload_timeout,std::chrono::milliseconds drain_timeout) {
+    // Only the SSE worker writes this value; drain() joins it before we read it.
+    std::optional<int> setup_result;
+    auto logs=stream_update_logs(endpoint,handshake,prepared,[&](const LogEntry &entry) {
+        if(entry.source=="execute_script" && entry.level=="ERROR") {
+            if(auto code=legacy_setup_return_code(entry.message);code && (!setup_result || *code!=75))
+                setup_result=code;
+        }
+        if(on_log) on_log(entry);
+    });
+    auto transfer=transfer_file_and_apply_update(endpoint,handshake,prepared,file,progress,upload_timeout);
+    logs.drain(drain_timeout);
+    return migration_upload_result(transfer,setup_result);
+}
+
 std::optional<std::string> migration_failure_log(std::string_view log,std::string_view archive_sha256) {
     std::istringstream lines(std::string(log.substr(log.size()>64000?log.size()-64000:0)));
     std::string line;
@@ -341,24 +359,18 @@ Result<void> install_device_release(const std::string &cloud,const DeviceEndpoin
         if(!handshake) return std::unexpected(handshake.error());
         auto prepared=prepare_transfer(endpoint,*handshake,*downloaded,std::chrono::seconds{10},plan.environment);
         if(!prepared) return std::unexpected(prepared.error());
-        // Written only by the stream worker and read after stop() joins it.
-        std::optional<int> setup_result;
-        auto logs=stream_update_logs(endpoint,*handshake,*prepared,[&](const LogEntry &entry) {
-            if(wanted=="updater-migration" && entry.source=="execute_script" && entry.level=="ERROR") {
-                if(auto code=legacy_setup_return_code(entry.message); code && (!setup_result || *code!=75))
-                    setup_result=code;
-            }
-            if(on_log) on_log(entry);
-        });
-        notify(wanted=="application"?"Installing application":"Verifying AIO and migrating updater");
-        auto transfer=transfer_file_and_apply_update(endpoint,*handshake,*prepared,downloaded->path,progress,std::chrono::minutes{10});
-        logs.stop();
+        Result<void> transfer;
         if(wanted=="updater-migration") {
-            auto outcome=migration_upload_result(transfer,setup_result);
-            if(!outcome) return outcome;
-        } else if(!transfer && !migration_upload_pending(transfer.error())) {
-            return std::unexpected(transfer.error());
+            notify("Verifying AIO and migrating updater");
+            transfer=transfer_migration(endpoint,*handshake,*prepared,downloaded->path,progress,on_log);
+        } else {
+            auto logs=stream_update_logs(endpoint,*handshake,*prepared,on_log?on_log:[](const LogEntry&){});
+            notify("Installing application");
+            transfer=transfer_file_and_apply_update(endpoint,*handshake,*prepared,downloaded->path,progress,std::chrono::minutes{10});
+            logs.stop();
+            if(!transfer && migration_upload_pending(transfer.error())) transfer={};
         }
+        if(!transfer) return transfer;
         notify(wanted=="application"?"Verifying application identity and required capabilities":"Waiting for durable updater migration result");
         auto verified=wait_operation(endpoint,plan.target,*artifact,wanted=="updater-migration",on_log);
         if(!verified) return verified;
