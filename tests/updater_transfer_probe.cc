@@ -3,7 +3,7 @@
 #include <iostream>
 using namespace xvc::update;
 int main(int argc,char **argv) {
-    if(argc!=7 && argc!=3) return 2;
+    if(argc!=8 && argc!=7 && argc!=3) return 2;
     try {
         if(argc==3) {
             DeviceEndpoint endpoint{.host="127.0.0.1",.update_port=std::stoi(argv[1])};
@@ -31,6 +31,19 @@ int main(int argc,char **argv) {
         auto prepared=prepare_transfer(device,handshake,artifact,std::chrono::seconds{3},argv[5]);
         if(!prepared){std::cerr<<prepared.error().message;return 3;}
         auto sent=transfer_file_and_apply_update(device,handshake,*prepared,file,{},std::chrono::seconds{3});
+        if(argc==8) {
+            if(sent) return 8;
+            auto outcome=migration_upload_result(sent);
+            const bool expect_failure=std::string_view(argv[7])=="failed";
+            if(expect_failure) {
+                if(outcome || outcome.error().code!=ErrorCode::DeviceUpdateFailed) return 9;
+                std::cout<<"terminal: "<<outcome.error().message<<'\n';
+            } else {
+                if(!outcome) {std::cerr<<outcome.error().message;return 10;}
+                std::cout<<"pending receipt; not success\n";
+            }
+            return 0;
+        }
         if(!sent){std::cerr<<sent.error().message;return 4;}
         std::cout<<prepared->upload_filename<<'\n';return 0;
     }catch(const std::exception &error){std::cerr<<error.what();return 5;}

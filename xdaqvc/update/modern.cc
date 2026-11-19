@@ -2,6 +2,7 @@
 #include "artifact.h"
 #include "device.h"
 #include <algorithm>
+#include <charconv>
 #include <cpr/cpr.h>
 #include <format>
 #include <nlohmann/json.hpp>
@@ -206,8 +207,38 @@ bool receipt_matches(const OperationReceipt &receipt,const VersionEntry &entry,c
            && receipt.kind==(artifact.role=="application"?"install":"updater-migration");
 }
 
+std::optional<int> legacy_setup_return_code(std::string_view message) {
+    // These are the pinned legacy updater's setup outcome formats, not arbitrary
+    // callback output or its ambiguous failed_rollbacked terminal status.
+    static const std::regex http(R"(setup\.sh from package root failed\. Status: failed, RC: (-?[0-9]+)(?![0-9A-Za-z]))");
+    static const std::regex stream(R"(^Script setup\.sh failed with return code (-?[0-9]+)$)");
+    std::match_results<std::string_view::const_iterator> match;
+    if(!std::regex_search(message.begin(),message.end(),match,http)
+       && !std::regex_match(message.begin(),message.end(),match,stream)) return std::nullopt;
+    int result=0;
+    const auto digits=match[1].str();
+    const auto parsed=std::from_chars(digits.data(),digits.data()+digits.size(),result);
+    if(parsed.ec!=std::errc{} || parsed.ptr!=digits.data()+digits.size()) return std::nullopt;
+    return result;
+}
+
 bool migration_upload_pending(const Error &error) {
-    return error.code==ErrorCode::NetworkUnreachable || error.code==ErrorCode::HttpError && error.http_status==500;
+    const auto code=legacy_setup_return_code(error.message);
+    return (!code || *code==75)
+           && (error.code==ErrorCode::NetworkUnreachable || (error.code==ErrorCode::HttpError && error.http_status==500));
+}
+
+Result<void> migration_upload_result(const Result<void> &upload,std::optional<int> setup_return_code) {
+    const auto response_code=upload?std::nullopt:legacy_setup_return_code(upload.error().message);
+    // A known failure must never be hidden by an ambiguous reset or by exit 75
+    // observed elsewhere. Exit 75 is a handoff signal, never a success receipt.
+    const auto failure=response_code && *response_code!=75?response_code
+        :setup_return_code && *setup_return_code!=75?setup_return_code:std::nullopt;
+    if(failure) return std::unexpected(Error{ErrorCode::DeviceUpdateFailed,
+        std::format("Updater migration setup failed with exit code {}; inspect migration diagnostics before retrying.",*failure)
+        +(upload?std::string{}:" "+upload.error().message)});
+    if(upload || migration_upload_pending(upload.error())) return {};
+    return std::unexpected(upload.error());
 }
 
 std::optional<std::string> migration_failure_log(std::string_view log,std::string_view archive_sha256) {
@@ -310,12 +341,24 @@ Result<void> install_device_release(const std::string &cloud,const DeviceEndpoin
         if(!handshake) return std::unexpected(handshake.error());
         auto prepared=prepare_transfer(endpoint,*handshake,*downloaded,std::chrono::seconds{10},plan.environment);
         if(!prepared) return std::unexpected(prepared.error());
-        auto logs=stream_update_logs(endpoint,*handshake,*prepared,on_log?on_log:[](const LogEntry&){});
+        // Written only by the stream worker and read after stop() joins it.
+        std::optional<int> setup_result;
+        auto logs=stream_update_logs(endpoint,*handshake,*prepared,[&](const LogEntry &entry) {
+            if(wanted=="updater-migration" && entry.source=="execute_script" && entry.level=="ERROR") {
+                if(auto code=legacy_setup_return_code(entry.message); code && (!setup_result || *code!=75))
+                    setup_result=code;
+            }
+            if(on_log) on_log(entry);
+        });
         notify(wanted=="application"?"Installing application":"Verifying AIO and migrating updater");
         auto transfer=transfer_file_and_apply_update(endpoint,*handshake,*prepared,downloaded->path,progress,std::chrono::minutes{10});
         logs.stop();
-        if(!transfer && !migration_upload_pending(transfer.error()))
+        if(wanted=="updater-migration") {
+            auto outcome=migration_upload_result(transfer,setup_result);
+            if(!outcome) return outcome;
+        } else if(!transfer && !migration_upload_pending(transfer.error())) {
             return std::unexpected(transfer.error());
+        }
         notify(wanted=="application"?"Verifying application identity and required capabilities":"Waiting for durable updater migration result");
         auto verified=wait_operation(endpoint,plan.target,*artifact,wanted=="updater-migration",on_log);
         if(!verified) return verified;

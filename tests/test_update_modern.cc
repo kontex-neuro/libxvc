@@ -219,3 +219,31 @@ TEST_CASE("Legacy application can resume after successful updater migration", "[
     REQUIRE(plan->update_available);REQUIRE_FALSE(plan->migration_required);
     REQUIRE_FALSE(plan->legacy_aio_confirmation);
 }
+
+TEST_CASE("Definitive legacy setup failures cannot enter migration receipt polling", "[update][modern]") {
+    const auto error=[](std::string rc) { return Error{ErrorCode::HttpError,
+        "http://127.0.0.1/transfer/local returned HTTP 500: {\"detail\":\"setup.sh from package root failed. Status: failed, RC: "+rc+"\"}",500}; };
+    REQUIRE(legacy_setup_return_code(error("1").message)==1);
+    REQUIRE(legacy_setup_return_code("Script setup.sh failed with return code 75")==75);
+    REQUIRE_FALSE(legacy_setup_return_code("Script relocate_server.sh failed with return code 1"));
+    REQUIRE_FALSE(legacy_setup_return_code("Callback output RC: 1"));
+    REQUIRE_FALSE(legacy_setup_return_code("Script setup.sh failed with return code 99999999999999999"));
+    REQUIRE_FALSE(legacy_setup_return_code(error("1garbage").message));
+    REQUIRE_FALSE(migration_upload_pending(error("1")));
+    REQUIRE(migration_upload_pending(error("75")));
+    for(auto code:{"1","-9","0"}) {
+        auto result=migration_upload_result(std::unexpected(error(code)));
+        REQUIRE_FALSE(result);REQUIRE(result.error().code==ErrorCode::DeviceUpdateFailed);
+        REQUIRE(result.error().message.find("exit code "+std::string(code))!=std::string::npos);
+    }
+    REQUIRE(migration_upload_result(std::unexpected(error("75"))));
+    const Error reset{ErrorCode::NetworkUnreachable,"connection reset"};
+    REQUIRE(migration_upload_result(std::unexpected(reset)));
+    auto failed_stream=migration_upload_result(std::unexpected(reset),1);
+    REQUIRE_FALSE(failed_stream);REQUIRE(failed_stream.error().code==ErrorCode::DeviceUpdateFailed);
+    REQUIRE(migration_upload_result(std::unexpected(reset),75));
+    REQUIRE_FALSE(migration_upload_result(std::unexpected(error("1")),75));
+    REQUIRE_FALSE(migration_upload_result(std::unexpected(error("75")),1));
+    REQUIRE(migration_upload_result(std::unexpected(Error{ErrorCode::HttpError,"ambiguous failure",500})));
+    REQUIRE_FALSE(migration_upload_result(std::unexpected(Error{ErrorCode::HttpError,"rejected",400}),75));
+}
