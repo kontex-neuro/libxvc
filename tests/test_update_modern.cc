@@ -113,7 +113,7 @@ TEST_CASE("The version list contains exactly the reviewable AIO releases in desc
     add(17).files.front().minimum_updater = "1.1.0";
     add(18).files.pop_back();
     catalog.device_versions.back().files.front().minimum_updater = "1.3.0";
-    add(19).files.front().minimum_updater = "1.3.0"; // Has a matching migration.
+    add(19).files.front().minimum_updater = "1.3.0"; // Factory bootstrap cannot replace a detected managed updater.
     add(20);
     add(20);                                 // Two approved entries in one channel.
     auto generic = catalog.device_versions.front();
@@ -125,7 +125,7 @@ TEST_CASE("The version list contains exactly the reviewable AIO releases in desc
         const auto list = list_device_versions(catalog, device, "1.2.1", channel, product);
         REQUIRE(list);
         const std::vector<Version> expected = channel == "release"
-            ? std::vector<Version>{{0,1,19}, {0,1,10}, {0,1,9}, {0,1,2}}
+            ? std::vector<Version>{{0,1,10}, {0,1,9}, {0,1,2}}
             : std::vector<Version>{{0,1,11}, {0,1,2}};
         CHECK(*list == expected);
         for (int patch = 0; patch <= 21; ++patch) {
@@ -142,6 +142,7 @@ TEST_CASE("The version list contains exactly the reviewable AIO releases in desc
 
 TEST_CASE("Version listing requires a compatible device or confirmed factory AIO", "[update][modern][version-list]") {
     auto catalog = matrix({device_entry("aio","0.1.9"), device_entry("aio","0.1.10")});
+    catalog.device_versions.front().files.front().minimum_updater = "1.2.1";
     catalog.device_versions.back().files.pop_back();
     const auto factory = parse_device_descriptor(R"({"version":"0.1.3"})", R"({"version":"0.0.32"})").value();
     const auto product = LegacyDeviceProduct::Aio;
@@ -152,6 +153,11 @@ TEST_CASE("Version listing requires a compatible device or confirmed factory AIO
     REQUIRE(releases);
     const std::vector<Version> expected{{0,1,9}};
     CHECK(*releases == expected);
+    const auto managed = parse_device_descriptor(descriptor().dump(), R"({"version":"0.1.8"})").value();
+    const auto limited = list_device_versions(catalog, managed, "1.2.0", "release", product);
+    REQUIRE(limited);
+    CHECK(*limited == std::vector<Version>{Version(0,1,10)});
+    CHECK_FALSE(plan_device_version(catalog, managed, "1.2.0", "release", product, Version(0,1,9)));
     auto device = parse_device_descriptor(descriptor("nvr").dump(), R"({"version":"0.1.9"})").value();
     CHECK_FALSE(list_device_versions(catalog, device, "1.2.1", "release", product));
     device = parse_device_descriptor(descriptor().dump(), R"({"version":"0.1.9"})").value();

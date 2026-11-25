@@ -326,7 +326,9 @@ struct CatalogTarget {
         if (legacy && !role(entry, "updater-migration")) return false;
         const auto application = role(entry, "application");
         const auto minimum = application ? Version::from_string(application->minimum_updater) : std::nullopt;
-        return minimum && *minimum >= Version(1, 2, 0);
+        // The bundled bootstrap runs on the factory updater, which has no capabilities
+        // endpoint. A detected managed updater must already meet the application's minimum.
+        return minimum && *minimum >= Version(1, 2, 0) && (!updater || *updater >= *minimum);
     }
 
     Result<bool> migration_required(const VersionEntry &entry) const {
