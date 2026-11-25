@@ -66,6 +66,10 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix, const D
 Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix, const DeviceDescriptor &device,
                                           std::string_view updater_version, std::string_view environment = "release",
                                           bool allow_legacy_aio_confirmation = false);
+// Explicit AIO selection schedules the requested catalog entry even for reinstall or downgrade.
+Result<DeviceUpdatePlan> plan_device_version(const VersionMatrix &matrix, const DeviceDescriptor &device,
+                                            std::string_view updater_version, std::string_view environment,
+                                            LegacyDeviceProduct confirmed_product, const Version &target_version);
 using UpdatePhaseCallback = std::function<void(std::string_view)>;
 Result<void> install_device_release(const std::string &cloud, const DeviceEndpoint &endpoint,
                                    const DeviceUpdatePlan &plan, ProgressCallback progress = nullptr,

@@ -310,9 +310,10 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const De
                               allow_legacy_aio_confirmation ? LegacyDeviceProduct::Aio : LegacyDeviceProduct::Unspecified);
 }
 
-Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const DeviceDescriptor &device,
-                                           std::string_view updater_version,std::string_view environment,
-                                           LegacyDeviceProduct confirmed_product) {
+namespace {
+Result<DeviceUpdatePlan> plan_device_target(const VersionMatrix &matrix, const DeviceDescriptor &device,
+                                           std::string_view updater_version, std::string_view environment,
+                                           LegacyDeviceProduct confirmed_product, std::optional<Version> requested) {
     if(environment!="release" && environment!="dev") return std::unexpected(malformed("Invalid update environment"));
     if(!compatible_api(device))
         return std::unexpected(Error{ErrorCode::VersionNotFound,"No compatible update can be selected for this device API; application build version cannot substitute for API compatibility"});
@@ -338,9 +339,12 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const De
     } else if (profile.empty() || profile==product+"-unqualified") {
         return std::unexpected(Error{ErrorCode::PlatformNotFound,"Device runtime profile is not established; no platform fallback is allowed"});
     }
+    if (requested && product != "aio")
+        return std::unexpected(Error{ErrorCode::PlatformNotFound, "Explicit version selection requires an AIO device"});
     const bool factory_nvr=legacy && confirmed_product==LegacyDeviceProduct::Nvr;
     const VersionEntry *best=nullptr;
     for(const auto &entry:matrix.device_versions) {
+        if (requested && entry.version != *requested) continue;
         const auto application=role(entry,"application");
         const auto offline_minimum=application?Version::from_string(application->minimum_updater):std::nullopt;
         if(!offline_minimum || *offline_minimum<Version(1,2,0)) continue;
@@ -352,22 +356,41 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix,const De
             if (best && best->profile != entry.profile)
                 return std::unexpected(Error{ErrorCode::PlatformNotFound,"Multiple NVR profiles are available. The factory updater cannot identify which one fits this device."});
         } else if (entry.profile!=profile) continue;
+        if (requested && best)
+            return std::unexpected(malformed("The catalog contains multiple matches for the requested AIO version"));
         if(!best || entry.version>best->version) best=&entry;
     }
     if(!best) {
+        if (requested)
+            return std::unexpected(Error{ErrorCode::VersionNotFound, std::format(
+                "No compatible AIO {} package for profile {} on the {} channel", requested->to_string(), profile, environment)});
         if (legacy) return std::unexpected(Error{ErrorCode::VersionNotFound, std::format(
             "No compatible {} factory migration package is available on the {} channel.", factory_nvr ? "NVR" : "AIO", environment)});
         return std::unexpected(Error{ErrorCode::VersionNotFound,"No approved package for this device/profile/channel; legacy ARM64 feed will not be substituted"});
     }
-    if(device.build_version && *device.build_version>best->version)
+    if(!requested && device.build_version && *device.build_version>best->version)
         return std::unexpected(Error{ErrorCode::DowngradeRejected,"Device application is newer than this catalog; downgrade is blocked"});
     auto updater=Version::from_string(updater_version), minimum=Version::from_string(role(*best,"application")->minimum_updater);
     if(!minimum) return std::unexpected(malformed("Application minimum updater is missing"));
     bool migration=!updater || *updater<*minimum;
     if(migration && !role(*best,"updater-migration"))
         return std::unexpected(Error{ErrorCode::VersionNotFound,"Matching updater migration is required before this application package"});
-    DeviceUpdatePlan plan{device,*best,!device.build_version || *device.build_version<best->version || migration,migration,legacy && !factory_nvr && migration,std::string(environment)};
+    const bool update_available = requested || !device.build_version || *device.build_version < best->version || migration;
+    DeviceUpdatePlan plan{device,*best,update_available,migration,legacy && !factory_nvr && migration,std::string(environment)};
     return plan;
+}
+} // namespace
+
+Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix, const DeviceDescriptor &device,
+                                           std::string_view updater_version, std::string_view environment,
+                                           LegacyDeviceProduct confirmed_product) {
+    return plan_device_target(matrix, device, updater_version, environment, confirmed_product, std::nullopt);
+}
+
+Result<DeviceUpdatePlan> plan_device_version(const VersionMatrix &matrix, const DeviceDescriptor &device,
+                                            std::string_view updater_version, std::string_view environment,
+                                            LegacyDeviceProduct confirmed_product, const Version &target_version) {
+    return plan_device_target(matrix, device, updater_version, environment, confirmed_product, target_version);
 }
 
 Result<void> install_device_release(const std::string &cloud,const DeviceEndpoint &endpoint,const DeviceUpdatePlan &plan,

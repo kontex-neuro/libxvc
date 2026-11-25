@@ -38,6 +38,80 @@ TEST_CASE("Modern catalog retains legacy metadata and filters by product profile
     REQUIRE_FALSE(plan_device_update(catalog,*identity,"1.2.0"));
 }
 
+TEST_CASE("An explicit AIO version can upgrade, reinstall or downgrade within its channel", "[update][modern][explicit]") {
+    const Version selected{0,1,9};
+    auto dev = device_entry("aio", "0.1.9");
+    dev["environment"] = "dev";
+    dev["download_base"] = "/dev/v0.1.9/aio/aio-jetson-orin-nx-l4t36.4.3-aarch64-cp310/linux-arm64/";
+    auto release = device_entry("aio", "0.1.9");
+    release["files"][0]["sha256"] = std::string(64, 'f');
+    const auto catalog = matrix({device_entry("aio","0.1.10"), release, dev, device_entry("nvr","0.1.9")});
+    auto device = parse_device_descriptor(descriptor().dump(), R"({"version":"0.1.8"})").value();
+    for (const Version current : {Version(0,1,8), selected, Version(0,1,10)}) {
+        device.build_version = current;
+        auto plan = plan_device_version(catalog, device, "1.2.1", "release", LegacyDeviceProduct::Unspecified, selected);
+        REQUIRE(plan);
+        CHECK(plan->update_available);
+        CHECK_FALSE(plan->migration_required);
+        CHECK(plan->target.version == selected);
+        CHECK(plan->target.product_id == "aio");
+        CHECK(plan->environment == "release");
+        CHECK(plan->target.files.front().sha256 == std::string(64, 'f'));
+    }
+    auto plan = plan_device_version(catalog, device, "1.2.1", "dev", LegacyDeviceProduct::Unspecified, selected);
+    REQUIRE(plan);
+    CHECK(plan->environment == "dev");
+    CHECK(plan->target.files.front().sha256 == std::string(64, 'b'));
+    auto latest = plan_device_update(catalog, device, "1.2.1", "release");
+    REQUIRE(latest);
+    CHECK(latest->target.version == Version(0,1,10));
+    CHECK_FALSE(latest->update_available);
+    const auto latest_dev = plan_device_update(catalog, device, "1.2.1", "dev");
+    REQUIRE_FALSE(latest_dev);
+    CHECK(latest_dev.error().code == ErrorCode::DowngradeRejected);
+}
+
+TEST_CASE("An explicit version never falls back to another package", "[update][modern][explicit]") {
+    const Version selected{0,1,9};
+    const auto aio = device_entry("aio","0.1.9");
+    auto catalog = matrix({aio, device_entry("aio","0.1.10"), device_entry("nvr","0.1.9")});
+    auto device = parse_device_descriptor(descriptor().dump(), R"({"version":"0.1.7"})").value();
+    auto plan = [&] { return plan_device_version(catalog, device, "1.2.1", "release", LegacyDeviceProduct::Aio, selected); };
+    SECTION("missing device entry, even when present in the legacy catalog") {
+        catalog.versions.push_back(catalog.device_versions.front());
+        catalog.device_versions.erase(catalog.device_versions.begin());
+    }
+    SECTION("unapproved status") { catalog.device_versions.front().status = "deprecated"; }
+    SECTION("wrong runtime profile") { catalog.device_versions.front().profile = "aio-other"; }
+    SECTION("wrong platform") { catalog.device_versions.front().platform = "linux-x86_64"; }
+    SECTION("another channel") { catalog.device_versions.front().environment = "dev"; }
+    SECTION("ambiguous exact entry") { catalog = matrix({aio, aio}); }
+    SECTION("device reports NVR despite AIO confirmation") {
+        device = parse_device_descriptor(descriptor("nvr").dump(), R"({"version":"0.1.7"})").value();
+    }
+    SECTION("incompatible device API") { device.api_version = Version(0,2,0); }
+    REQUIRE_FALSE(plan());
+}
+
+TEST_CASE("Explicit factory AIO requests retain product confirmation and migration checks", "[update][modern][explicit]") {
+    const auto factory = parse_device_descriptor(R"({"version":"0.1.3"})", R"({"version":"0.0.32"})").value();
+    const Version selected{0,1,9};
+    auto catalog = matrix({device_entry("aio","0.1.9"), device_entry("aio","0.1.10")});
+    auto plan = [&](LegacyDeviceProduct product, std::string_view updater) {
+        return plan_device_version(catalog, factory, updater, "release", product, selected);
+    };
+    REQUIRE_FALSE(plan(LegacyDeviceProduct::Unspecified, ""));
+    REQUIRE_FALSE(plan(LegacyDeviceProduct::Nvr, ""));
+    REQUIRE_FALSE(plan(LegacyDeviceProduct::Aio, "1.1.0"));
+    auto migration = plan(LegacyDeviceProduct::Aio, "");
+    REQUIRE(migration);
+    CHECK(migration->migration_required);
+    CHECK(migration->legacy_aio_confirmation);
+    CHECK(migration->target.version == selected);
+    catalog.device_versions.front().files.pop_back();
+    REQUIRE_FALSE(plan(LegacyDeviceProduct::Aio, ""));
+}
+
 TEST_CASE("FrameLab does not imply AIO digital IO and malformed flags never enable controls", "[update][modern]") {
     auto input=descriptor();
     auto identity=parse_device_descriptor(input.dump(),R"({"version":"1.4.1"})"); REQUIRE(identity);
