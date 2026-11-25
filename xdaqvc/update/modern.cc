@@ -376,7 +376,8 @@ Result<DeviceUpdatePlan> plan_device_target(const VersionMatrix &matrix, const D
     if(migration && !role(*best,"updater-migration"))
         return std::unexpected(Error{ErrorCode::VersionNotFound,"Matching updater migration is required before this application package"});
     const bool update_available = requested || !device.build_version || *device.build_version < best->version || migration;
-    DeviceUpdatePlan plan{device,*best,update_available,migration,legacy && !factory_nvr && migration,std::string(environment)};
+    DeviceUpdatePlan plan{device,*best,update_available,migration,legacy && !factory_nvr && migration,
+                          std::string(environment),requested.has_value()};
     return plan;
 }
 } // namespace
@@ -391,6 +392,13 @@ Result<DeviceUpdatePlan> plan_device_version(const VersionMatrix &matrix, const 
                                             std::string_view updater_version, std::string_view environment,
                                             LegacyDeviceProduct confirmed_product, const Version &target_version) {
     return plan_device_target(matrix, device, updater_version, environment, confirmed_product, target_version);
+}
+
+Result<void> application_upload_result(const DeviceUpdatePlan &plan, Result<void> upload) {
+    if (upload || !migration_upload_pending(upload.error())) return upload;
+    if (!plan.exact_version_requested) return {};
+    upload.error().message = "The updater did not acknowledge this install attempt. " + upload.error().message;
+    return upload;
 }
 
 Result<void> install_device_release(const std::string &cloud,const DeviceEndpoint &endpoint,const DeviceUpdatePlan &plan,
@@ -456,9 +464,9 @@ Result<void> install_device_release(const std::string &cloud,const DeviceEndpoin
         } else {
             auto logs=stream_update_logs(endpoint,*handshake,*prepared,on_log?on_log:[](const LogEntry&){});
             notify("Installing application");
-            transfer=transfer_file_and_apply_update(endpoint,*handshake,*prepared,downloaded->path,progress,std::chrono::minutes{10});
+            auto upload=transfer_file_and_apply_update(endpoint,*handshake,*prepared,downloaded->path,progress,std::chrono::minutes{10});
             logs.stop();
-            if(!transfer && migration_upload_pending(transfer.error())) transfer={};
+            transfer=application_upload_result(plan, std::move(upload));
         }
         if(!transfer) return transfer;
         notify(wanted=="application"?"Verifying application identity and required capabilities":"Waiting for durable updater migration result");

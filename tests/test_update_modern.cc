@@ -52,6 +52,7 @@ TEST_CASE("An explicit AIO version can upgrade, reinstall or downgrade within it
         auto plan = plan_device_version(catalog, device, "1.2.1", "release", LegacyDeviceProduct::Unspecified, selected);
         REQUIRE(plan);
         CHECK(plan->update_available);
+        CHECK(plan->exact_version_requested);
         CHECK_FALSE(plan->migration_required);
         CHECK(plan->target.version == selected);
         CHECK(plan->target.product_id == "aio");
@@ -66,6 +67,7 @@ TEST_CASE("An explicit AIO version can upgrade, reinstall or downgrade within it
     REQUIRE(latest);
     CHECK(latest->target.version == Version(0,1,10));
     CHECK_FALSE(latest->update_available);
+    CHECK_FALSE(latest->exact_version_requested);
     const auto latest_dev = plan_device_update(catalog, device, "1.2.1", "dev");
     REQUIRE_FALSE(latest_dev);
     CHECK(latest_dev.error().code == ErrorCode::DowngradeRejected);
@@ -91,6 +93,29 @@ TEST_CASE("An explicit version never falls back to another package", "[update][m
     }
     SECTION("incompatible device API") { device.api_version = Version(0,2,0); }
     REQUIRE_FALSE(plan());
+}
+
+TEST_CASE("An exact application install requires acknowledgement before polling a reusable archive receipt", "[update][modern][explicit]") {
+    const auto catalog = matrix({device_entry("aio","0.1.9")});
+    auto device = parse_device_descriptor(descriptor().dump(), R"({"version":"0.1.9"})").value();
+    const auto exact = plan_device_version(catalog, device, "1.2.1", "release",
+                                           LegacyDeviceProduct::Unspecified, Version(0,1,9)).value();
+    device.build_version = Version(0,1,8);
+    const auto latest = plan_device_update(catalog, device, "1.2.1").value();
+    REQUIRE(application_upload_result(exact, {}));
+    const Error reset{ErrorCode::NetworkUnreachable, "connection reset"};
+    const Error server_error{ErrorCode::HttpError, "upload interrupted", 500};
+    for (const auto &error : {reset, server_error}) {
+        const auto result = application_upload_result(exact, std::unexpected(error));
+        REQUIRE_FALSE(result);
+        CHECK(result.error().code == error.code);
+        CHECK(result.error().http_status == error.http_status);
+        REQUIRE(application_upload_result(latest, std::unexpected(error)));
+        REQUIRE(migration_upload_result(std::unexpected(error)));
+    }
+    const Error refused{ErrorCode::HttpError, "package refused", 412};
+    CHECK_FALSE(application_upload_result(exact, std::unexpected(refused)));
+    CHECK_FALSE(application_upload_result(latest, std::unexpected(refused)));
 }
 
 TEST_CASE("Explicit factory AIO requests retain product confirmation and migration checks", "[update][modern][explicit]") {

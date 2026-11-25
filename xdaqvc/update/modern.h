@@ -19,6 +19,7 @@ struct DeviceUpdatePlan {
     bool migration_required = false;
     bool legacy_aio_confirmation = false;
     std::string environment = "release";
+    bool exact_version_requested = false;
 };
 
 struct OperationReceipt {
@@ -51,6 +52,9 @@ std::optional<int> legacy_setup_return_code(std::string_view message);
 bool migration_upload_pending(const Error &error);
 // Success here only permits durable-receipt polling; it never proves migration success.
 Result<void> migration_upload_result(const Result<void> &upload, std::optional<int> setup_return_code = std::nullopt);
+// A successful response allows receipt and live-health verification. Exact-version requests
+// need acknowledgement for this upload because an earlier install can share its archive digest.
+Result<void> application_upload_result(const DeviceUpdatePlan &plan, Result<void> upload);
 // Upload + drain + classify only. A successful return still requires a durable
 // matching migration receipt; no application package is transferred here.
 Result<void> transfer_migration(const DeviceEndpoint &endpoint, const Handshake &handshake,
