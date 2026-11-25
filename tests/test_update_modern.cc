@@ -95,6 +95,71 @@ TEST_CASE("An explicit version never falls back to another package", "[update][m
     REQUIRE_FALSE(plan());
 }
 
+TEST_CASE("The version list contains exactly the reviewable AIO releases in descending order", "[update][modern][version-list]") {
+    auto catalog = matrix({device_entry("aio","0.1.2"), device_entry("aio","0.1.10"), device_entry("aio","0.1.9")});
+    const auto device = parse_device_descriptor(descriptor().dump(), R"({"version":"0.1.9"})").value();
+    auto add = [&](int patch) -> VersionEntry & {
+        auto &entry = catalog.device_versions.emplace_back(catalog.device_versions.front());
+        entry.version = Version(0, 1, patch);
+        return entry;
+    };
+    add(2).environment = "dev";             // Same version, distinct channel.
+    add(11).environment = "dev";
+    add(12).status = "deprecated";
+    add(13).profile = "aio-other";
+    add(14).platform = "linux-x86_64";
+    add(15).product_id = "nvr";
+    add(16).files.clear();
+    add(17).files.front().minimum_updater = "1.1.0";
+    add(18).files.pop_back();
+    catalog.device_versions.back().files.front().minimum_updater = "1.3.0";
+    add(19).files.front().minimum_updater = "1.3.0"; // Has a matching migration.
+    add(20);
+    add(20);                                 // Two approved entries in one channel.
+    auto generic = catalog.device_versions.front();
+    generic.version = Version(0, 1, 21);
+    catalog.versions.push_back(generic);
+
+    const auto product = LegacyDeviceProduct::Unspecified;
+    for (const std::string_view channel : {"release", "dev"}) {
+        const auto list = list_device_versions(catalog, device, "1.2.1", channel, product);
+        REQUIRE(list);
+        const std::vector<Version> expected = channel == "release"
+            ? std::vector<Version>{{0,1,19}, {0,1,10}, {0,1,9}, {0,1,2}}
+            : std::vector<Version>{{0,1,11}, {0,1,2}};
+        CHECK(*list == expected);
+        for (int patch = 0; patch <= 21; ++patch) {
+            const Version version{0, 1, patch};
+            const auto review = plan_device_version(catalog, device, "1.2.1", channel, product, version);
+            CHECK(review.has_value() == (std::find(list->begin(), list->end(), version) != list->end()));
+        }
+    }
+    catalog.device_versions.clear();
+    const auto empty = list_device_versions(catalog, device, "1.2.1", "release", product);
+    REQUIRE(empty);
+    CHECK(empty->empty());
+}
+
+TEST_CASE("Version listing requires a compatible device or confirmed factory AIO", "[update][modern][version-list]") {
+    auto catalog = matrix({device_entry("aio","0.1.9"), device_entry("aio","0.1.10")});
+    catalog.device_versions.back().files.pop_back();
+    const auto factory = parse_device_descriptor(R"({"version":"0.1.3"})", R"({"version":"0.0.32"})").value();
+    const auto product = LegacyDeviceProduct::Aio;
+    CHECK_FALSE(list_device_versions(catalog, factory, "", "release", LegacyDeviceProduct::Unspecified));
+    CHECK_FALSE(list_device_versions(catalog, factory, "", "release", LegacyDeviceProduct::Nvr));
+    CHECK_FALSE(list_device_versions(catalog, factory, "1.1.0", "release", product));
+    const auto releases = list_device_versions(catalog, factory, "", "release", product);
+    REQUIRE(releases);
+    const std::vector<Version> expected{{0,1,9}};
+    CHECK(*releases == expected);
+    auto device = parse_device_descriptor(descriptor("nvr").dump(), R"({"version":"0.1.9"})").value();
+    CHECK_FALSE(list_device_versions(catalog, device, "1.2.1", "release", product));
+    device = parse_device_descriptor(descriptor().dump(), R"({"version":"0.1.9"})").value();
+    CHECK_FALSE(list_device_versions(catalog, device, "1.2.1", "other", product));
+    device.api_version = Version(0,2,0);
+    CHECK_FALSE(list_device_versions(catalog, device, "1.2.1", "release", product));
+}
+
 TEST_CASE("An exact application install requires acknowledgement before polling a reusable archive receipt", "[update][modern][explicit]") {
     const auto catalog = matrix({device_entry("aio","0.1.9")});
     auto device = parse_device_descriptor(descriptor().dump(), R"({"version":"0.1.9"})").value();

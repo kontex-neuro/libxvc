@@ -74,6 +74,11 @@ Result<DeviceUpdatePlan> plan_device_update(const VersionMatrix &matrix, const D
 Result<DeviceUpdatePlan> plan_device_version(const VersionMatrix &matrix, const DeviceDescriptor &device,
                                             std::string_view updater_version, std::string_view environment,
                                             LegacyDeviceProduct confirmed_product, const Version &target_version);
+// Approved, unambiguous versions for exact AIO selection, newest first. A valid device
+// and channel can have an empty list; a factory unit requires explicit AIO confirmation.
+Result<std::vector<Version>> list_device_versions(const VersionMatrix &matrix, const DeviceDescriptor &device,
+                                                  std::string_view updater_version, std::string_view environment,
+                                                  LegacyDeviceProduct confirmed_product);
 using UpdatePhaseCallback = std::function<void(std::string_view)>;
 Result<void> install_device_release(const std::string &cloud, const DeviceEndpoint &endpoint,
                                    const DeviceUpdatePlan &plan, ProgressCallback progress = nullptr,
